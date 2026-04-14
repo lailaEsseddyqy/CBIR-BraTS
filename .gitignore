@@ -1,0 +1,15 @@
+# --- Ignorer le Dataset BraTS ---
+*.nii
+*.nii.gz
+dataset/
+data/
+
+# --- Ignorer les environnements virtuels Python ---
+__pycache__/
+.venv/
+venv/
+env/
+*.pyc
+
+# --- Ignorer la future Base de Données ChromaDB ---
+ma_base_medicale/
