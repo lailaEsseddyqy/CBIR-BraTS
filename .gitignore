@@ -13,3 +13,5 @@ env/
 
 # --- Ignorer la future Base de Données ChromaDB ---
 ma_base_medicale/
+# Ignorer les poids des modèles Deep Learning
+saved_models/*.pth

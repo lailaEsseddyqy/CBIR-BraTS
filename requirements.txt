@@ -1,3 +1,5 @@
 nibabel
 numpy
 matplotlib
+scikit-fuzzy
+scipy
