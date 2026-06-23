@@ -9,7 +9,7 @@ Sections :
 Port : 8501
 """
 
-import os, sys, time, warnings
+import os, sys, time, warnings, html as html_module
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -568,13 +568,52 @@ section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] input:checked +
 }
 
 /* ================================================
-   DATAFRAME / TABLE
+   DATAFRAME / TABLE — conteneur visible
 ================================================ */
 [data-testid="stDataFrame"] {
     border-radius: var(--radius-md) !important;
-    overflow: hidden !important;
-    border: 1px solid var(--border) !important;
+    overflow: auto !important;
+    border: 2px solid rgba(59,130,246,0.55) !important;
+    background: #1E293B !important;
+    box-shadow: 0 0 16px rgba(59,130,246,0.15) !important;
 }
+
+/* ================================================
+   HTML TABLES — toujours visibles (pas de canvas)
+================================================ */
+.cbmir-table-wrap {
+    overflow-x: auto;
+    border: 2px solid rgba(59,130,246,0.55);
+    border-radius: var(--radius-md);
+    background: #1E293B;
+    box-shadow: 0 0 16px rgba(59,130,246,0.15);
+    margin-bottom: 8px;
+}
+table.cbmir-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+}
+table.cbmir-table thead th {
+    background: #1D4ED8;
+    color: #FFFFFF;
+    font-weight: 700;
+    font-size: 12px;
+    padding: 12px 14px;
+    text-align: left;
+    border-bottom: 2px solid #3B82F6;
+    white-space: nowrap;
+}
+table.cbmir-table tbody td {
+    color: #F8FAFC;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(71,85,105,0.6);
+    font-weight: 500;
+}
+table.cbmir-table tbody tr.row-odd td  { background: #243044; }
+table.cbmir-table tbody tr.row-even td { background: #2D3748; }
+table.cbmir-table tbody tr:hover td    { background: #334155; }
 
 /* ================================================
    TABS (Model comparison)
@@ -777,68 +816,11 @@ input, textarea, select {
 /* Divider */
 [data-testid="stDivider"] hr { border-color: var(--border) !important; opacity: 1 !important; }
 
-/* ================================================
-   DATAFRAME — ULTRA VISIBLE WITH HIGH CONTRAST
-================================================ */
-[data-testid="stDataFrame"] {
-    border-radius: var(--radius-md) !important;
-    overflow: hidden !important;
-    border: 3px solid #00D4FF !important;
-    background: #1a1a2e !important;
-    box-shadow: 0 0 20px rgba(0,212,255,0.4), inset 0 0 10px rgba(0,212,255,0.1) !important;
-}
-
-[data-testid="stDataFrame"] iframe { 
-    border-radius: var(--radius-md) !important; 
-    color-scheme: dark !important;
-    background: #1a1a2e !important;
-}
-
-.dvn-scroller, .stDataFrame div { 
-    background: #1a1a2e !important; 
-    color: #FFFFFF !important; 
-}
-
-[data-testid="stDataFrame"] [role="columnheader"],
-[data-testid="stDataFrame"] [role="columnheader"] span {
-    background: linear-gradient(135deg, #0066CC 0%, #00AAE4 100%) !important;
-    color: #FFFFFF !important;
-    font-size: 13px !important;
-    font-weight: 900 !important;
-    text-transform: uppercase !important;
-    letter-spacing: 1.2px !important;
-    border: 2px solid #00D4FF !important;
-    padding: 14px 10px !important;
-    box-shadow: 0 2px 8px rgba(0,212,255,0.3) !important;
-}
-
-[data-testid="stDataFrame"] [role="gridcell"],
-[data-testid="stDataFrame"] [role="gridcell"] span {
-    background: #252d48 !important;
-    color: #E8F4FF !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    border-right: 2px solid rgba(0,212,255,0.25) !important;
-    border-bottom: 2px solid rgba(0,212,255,0.2) !important;
-    padding: 12px 10px !important;
-}
-
-[data-testid="stDataFrame"] [role="row"] {
-    border-bottom: 2px solid rgba(0,212,255,0.2) !important;
-}
-
-[data-testid="stDataFrame"] [role="row"]:nth-child(odd) [role="gridcell"] {
-    background: #1f2a42 !important;
-}
-
-[data-testid="stDataFrame"] [role="row"]:nth-child(even) [role="gridcell"] {
-    background: #2a3a57 !important;
-}
-
-[data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] { 
-    background: #0066CC !important;
-    color: #FFFFFF !important;
-    box-shadow: inset 0 0 12px rgba(0,212,255,0.3) !important;
+[data-testid="stDataFrame"] iframe,
+[data-testid="stDataFrame"] [data-testid="stDataFrameResizable"],
+[data-testid="stDataFrame"] .dvn-scroller {
+    background: #1E293B !important;
+    color: #F8FAFC !important;
 }
 
 </style>
@@ -889,6 +871,80 @@ if "eval_results"     not in st.session_state: st.session_state["eval_results"] 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Styling tableaux — contraste élevé (lisible sur fond #0A0E1A)
+_TABLE_CELL_PROPS = {
+    "background-color": "#243044",
+    "color":            "#F8FAFC",
+    "border-color":     "#475569",
+    "font-size":        "13px",
+}
+_TABLE_HEADER_STYLES = [
+    {
+        "selector": "thead th",
+        "props": [
+            ("background-color", "#1D4ED8"),
+            ("color",            "#FFFFFF"),
+            ("font-weight",      "700"),
+            ("font-size",        "12px"),
+            ("padding",          "10px 8px"),
+            ("border",           "1px solid #3B82F6"),
+        ],
+    },
+    {
+        "selector": "tbody tr:nth-child(even) td",
+        "props": [("background-color", "#2D3748"), ("color", "#F8FAFC")],
+    },
+    {
+        "selector": "tbody tr:nth-child(odd) td",
+        "props": [("background-color", "#243044"), ("color", "#F8FAFC")],
+    },
+]
+
+def style_dark_table(df: pd.DataFrame):
+    """Force des couleurs lisibles dans st.dataframe (thème sombre)."""
+    return (
+        df.style
+        .set_properties(**_TABLE_CELL_PROPS)
+        .set_table_styles(_TABLE_HEADER_STYLES, overwrite=False)
+    )
+
+def style_eval_table(df: pd.DataFrame):
+    """Tableau P@K avec dégradé vert + texte toujours lisible."""
+    return (
+        df.style
+        .background_gradient(subset=["Precision@K"], cmap="Greens", text_color_threshold=0.45)
+        .set_properties(**{"color": "#F8FAFC", "font-size": "13px"})
+        .set_table_styles(_TABLE_HEADER_STYLES, overwrite=False)
+    )
+
+def render_html_table(df: pd.DataFrame) -> None:
+    """Tableau HTML statique — visible sans clic (contourne le canvas st.dataframe)."""
+    headers = "".join(f"<th>{html_module.escape(str(col))}</th>" for col in df.columns)
+    rows = []
+    for i, (_, row) in enumerate(df.iterrows()):
+        zebra = "even" if i % 2 else "odd"
+        cells = "".join(
+            f"<td>{html_module.escape(str(row[col]))}</td>" for col in df.columns
+        )
+        rows.append(f'<tr class="row-{zebra}">{cells}</tr>')
+    st.markdown(
+        f'<div class="cbmir-table-wrap">'
+        f'<table class="cbmir-table"><thead><tr>{headers}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
+
+_PIPELINE_COL_CONFIG = {
+    "Rang":       st.column_config.NumberColumn("Rang",      width="small",  format="%d"),
+    "Patient ID": st.column_config.TextColumn("Patient ID",  width="medium"),
+    "Modalité":   st.column_config.TextColumn("Modalité",    width="small"),
+    "Coupe z":    st.column_config.NumberColumn("Coupe z",   width="small",  format="%d"),
+    "Cosinus":    st.column_config.NumberColumn("Cosinus",   width="medium", format="%.4f"),
+    "SSIM":       st.column_config.NumberColumn("SSIM",      width="medium", format="%.4f"),
+    "PSNR":       st.column_config.NumberColumn("PSNR",      width="small",  format="%.1f"),
+    "Valide":     st.column_config.TextColumn("Valide",      width="small"),
+}
 
 def preprocess(image_np: np.ndarray) -> torch.Tensor:
     import torch.nn.functional as F
@@ -1346,21 +1402,10 @@ if page == "🔍 Pipeline Explorer":
             # ── Tableau interactif ────────────────────────────────
             st.markdown("<p class='section-eyebrow'>Tableau des résultats</p>", unsafe_allow_html=True)
             st.dataframe(
-                df,
+                style_dark_table(df),
                 use_container_width=True,
                 hide_index=True,
-                column_config={
-                    "Rang":      st.column_config.NumberColumn("Rang",     width="small",  format="%d"),
-                    "Patient ID":st.column_config.TextColumn("Patient ID", width="medium"),
-                    "Modalité":  st.column_config.TextColumn("Modalité",   width="small"),
-                    "Coupe z":   st.column_config.NumberColumn("Coupe z",  width="small",  format="%d"),
-                    "Cosinus":   st.column_config.ProgressColumn(
-                                    "Cosinus", min_value=0, max_value=1, format="%.4f", width="medium"),
-                    "SSIM":      st.column_config.ProgressColumn(
-                                    "SSIM",    min_value=0, max_value=1, format="%.4f", width="medium"),
-                    "PSNR":      st.column_config.NumberColumn("PSNR",     width="small",  format="%.1f"),
-                    "Valide":    st.column_config.TextColumn("Valide",     width="small"),
-                },
+                column_config=_PIPELINE_COL_CONFIG,
             )
 
             if n_filtered > 0:
@@ -1467,28 +1512,8 @@ elif page == "⚖️ Comparaison Modèles":
 
             if frames:
                 df_all = pd.concat(frames, ignore_index=True)
-                df_style = df_all.style.set_properties(**{
-                    'background-color': '#111827',
-                    'color': '#F1F5F9',
-                    'border-color': '#1E293B'
-                })
-                st.dataframe(
-                    df_style,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Modèle":    st.column_config.TextColumn("Modèle",     width="medium"),
-                        "Rang":      st.column_config.NumberColumn("Rang",     width="small",  format="%d"),
-                        "Patient ID":st.column_config.TextColumn("Patient ID", width="medium"),
-                        "Mod":       st.column_config.TextColumn("Modalité",   width="small"),
-                        "z":         st.column_config.NumberColumn("Coupe z",  width="small",  format="%d"),
-                        "Cosinus":   st.column_config.ProgressColumn(
-                                        "Cosinus", min_value=0, max_value=1, format="%.4f", width="medium"),
-                        "SSIM":      st.column_config.ProgressColumn(
-                                        "SSIM",    min_value=0, max_value=1, format="%.4f", width="medium"),
-                        "Valide":    st.column_config.TextColumn("Valide",     width="small"),
-                    },
-                )
+                df_display = df_all.rename(columns={"Mod": "Modalité", "z": "Coupe z"})
+                render_html_table(df_display)
 
                 # ── Ranking visuel ─────────────────────────────────
                 st.divider()
@@ -1579,7 +1604,7 @@ elif page == "📊 Évaluation (P@K)":
                 st.divider()
                 st.markdown("<p class='section-eyebrow'>Tableau de résultats détaillé</p>", unsafe_allow_html=True)
                 st.dataframe(
-                    df_eval.style.background_gradient(subset=["Precision@K"], cmap="Greens"),
+                    style_eval_table(df_eval),
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -1643,7 +1668,11 @@ elif page == "⚙️ Architecture":
             "Paramètre" : ["Métrique", "Algorithme ANN", "Collections", "Filtrage"],
             "Valeur"    : ["Cosine Similarity", "HNSW", "3 (baseline / radimagenet / supcon)", "Modalité MRI, Patient ID"],
         })
-        st.dataframe(infra_qdrant, use_container_width=True, hide_index=True)
+        st.dataframe(
+            style_dark_table(infra_qdrant),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     with col_i2:
         st.markdown("#### 🍃 MongoDB — Enrichissement Métadonnées")
@@ -1651,7 +1680,11 @@ elif page == "⚙️ Architecture":
             "Paramètre" : ["Base de données", "Métadonnées", "Métriques calculées", "Dataset"],
             "Valeur"    : ["BraTS Atlas", "Patient ID, Modalité, Coupe z, Stats", "SSIM, PSNR, Histogramme", "BraTS 2021 — 1 251 patients"],
         })
-        st.dataframe(infra_mongo, use_container_width=True, hide_index=True)
+        st.dataframe(
+            style_dark_table(infra_mongo),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.divider()
     st.subheader("Flux de traitement")
