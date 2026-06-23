@@ -3,3 +3,13 @@ numpy
 matplotlib
 scikit-fuzzy
 scipy
+qdrant-client 
+pymongo 
+python-dotenv
+pytorch-lightning 
+torchmetrics 
+tqdm 
+streamlit 
+pillow
+scikit-image
+opencv-python
