@@ -2,7 +2,7 @@
 *.nii
 *.nii.gz
 dataset/
-data/
+Data/
 
 # --- Ignorer les environnements virtuels Python ---
 __pycache__/
@@ -14,4 +14,13 @@ env/
 # --- Ignorer la future Base de Données ChromaDB ---
 ma_base_medicale/
 # Ignorer les poids des modèles Deep Learning
-saved_models/*.pth
+pretrain/
+saved_models/
+# Ignorer les api_keys et les configurations sensibles
+.env
+
+# Bases de données et résultats locaux
+qdrant_local_db/
+results/
+evaluation_results/
+images/
