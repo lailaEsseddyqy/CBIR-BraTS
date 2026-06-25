@@ -9,6 +9,7 @@ python-dotenv
 pytorch-lightning 
 torchmetrics 
 tqdm 
+plotly
 streamlit 
 pillow
 scikit-image

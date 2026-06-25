@@ -9,9 +9,10 @@ Sections :
 Port : 8501
 """
 
-import os, sys, time, warnings
+import os, sys, time, warnings, html as html_module
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -36,7 +37,7 @@ load_dotenv()
 
 # ── Configuration Page ────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="CBMIR Platform — Research Dashboard",
+    page_title="CBMIR Platform — Tableau de bord de recherche",
     page_icon="◎",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -568,13 +569,52 @@ section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] input:checked +
 }
 
 /* ================================================
-   DATAFRAME / TABLE
+   DATAFRAME / TABLE — conteneur visible
 ================================================ */
 [data-testid="stDataFrame"] {
     border-radius: var(--radius-md) !important;
-    overflow: hidden !important;
-    border: 1px solid var(--border) !important;
+    overflow: auto !important;
+    border: 2px solid rgba(59,130,246,0.55) !important;
+    background: #1E293B !important;
+    box-shadow: 0 0 16px rgba(59,130,246,0.15) !important;
 }
+
+/* ================================================
+   HTML TABLES — toujours visibles (pas de canvas)
+================================================ */
+.cbmir-table-wrap {
+    overflow-x: auto;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+    margin-bottom: 8px;
+}
+table.cbmir-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+}
+table.cbmir-table thead th {
+    background: var(--surface-2);
+    color: #E5E7EB;
+    font-weight: 600;
+    font-size: 12px;
+    padding: 11px 14px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
+}
+table.cbmir-table tbody td {
+    color: #D1D5DB;
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-weight: 500;
+}
+table.cbmir-table tbody tr.row-odd td  { background: var(--bg); }
+table.cbmir-table tbody tr.row-even td { background: var(--bg); }
+table.cbmir-table tbody tr:hover td    { background: var(--surface); }
 
 /* ================================================
    TABS (Model comparison)
@@ -777,68 +817,11 @@ input, textarea, select {
 /* Divider */
 [data-testid="stDivider"] hr { border-color: var(--border) !important; opacity: 1 !important; }
 
-/* ================================================
-   DATAFRAME — ULTRA VISIBLE WITH HIGH CONTRAST
-================================================ */
-[data-testid="stDataFrame"] {
-    border-radius: var(--radius-md) !important;
-    overflow: hidden !important;
-    border: 3px solid #00D4FF !important;
-    background: #1a1a2e !important;
-    box-shadow: 0 0 20px rgba(0,212,255,0.4), inset 0 0 10px rgba(0,212,255,0.1) !important;
-}
-
-[data-testid="stDataFrame"] iframe { 
-    border-radius: var(--radius-md) !important; 
-    color-scheme: dark !important;
-    background: #1a1a2e !important;
-}
-
-.dvn-scroller, .stDataFrame div { 
-    background: #1a1a2e !important; 
-    color: #FFFFFF !important; 
-}
-
-[data-testid="stDataFrame"] [role="columnheader"],
-[data-testid="stDataFrame"] [role="columnheader"] span {
-    background: linear-gradient(135deg, #0066CC 0%, #00AAE4 100%) !important;
-    color: #FFFFFF !important;
-    font-size: 13px !important;
-    font-weight: 900 !important;
-    text-transform: uppercase !important;
-    letter-spacing: 1.2px !important;
-    border: 2px solid #00D4FF !important;
-    padding: 14px 10px !important;
-    box-shadow: 0 2px 8px rgba(0,212,255,0.3) !important;
-}
-
-[data-testid="stDataFrame"] [role="gridcell"],
-[data-testid="stDataFrame"] [role="gridcell"] span {
-    background: #252d48 !important;
-    color: #E8F4FF !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    border-right: 2px solid rgba(0,212,255,0.25) !important;
-    border-bottom: 2px solid rgba(0,212,255,0.2) !important;
-    padding: 12px 10px !important;
-}
-
-[data-testid="stDataFrame"] [role="row"] {
-    border-bottom: 2px solid rgba(0,212,255,0.2) !important;
-}
-
-[data-testid="stDataFrame"] [role="row"]:nth-child(odd) [role="gridcell"] {
-    background: #1f2a42 !important;
-}
-
-[data-testid="stDataFrame"] [role="row"]:nth-child(even) [role="gridcell"] {
-    background: #2a3a57 !important;
-}
-
-[data-testid="stDataFrame"] [role="row"]:hover [role="gridcell"] { 
-    background: #0066CC !important;
-    color: #FFFFFF !important;
-    box-shadow: inset 0 0 12px rgba(0,212,255,0.3) !important;
+[data-testid="stDataFrame"] iframe,
+[data-testid="stDataFrame"] [data-testid="stDataFrameResizable"],
+[data-testid="stDataFrame"] .dvn-scroller {
+    background: #1E293B !important;
+    color: #F8FAFC !important;
 }
 
 </style>
@@ -848,13 +831,13 @@ input, textarea, select {
 st.markdown("""
 <div class="dashboard-header">
     <div class="header-left">
-        <div class="dashboard-title">CBMIR <span>Research Platform</span></div>
+        <div class="dashboard-title">CBMIR <span>Plateforme de recherche</span></div>
         <div class="dashboard-subtitle">
-            Brain MRI · Content-Based Image Retrieval · Technical Evaluation Workspace
+            IRM cérébrale · Recherche d'images par contenu · Espace d'évaluation technique
         </div>
     </div>
     <div class="header-badges">
-        <span class="header-badge active">◎ Live</span>
+        <span class="header-badge active">◎ En direct</span>
         <span class="header-badge cyan">BraTS 2021</span>
         <span class="header-badge">v1.0</span>
     </div>
@@ -889,6 +872,79 @@ if "eval_results"     not in st.session_state: st.session_state["eval_results"] 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Styling tableaux — contraste élevé (lisible sur fond #0A0E1A)
+_TABLE_CELL_PROPS = {
+    "background-color": "#243044",
+    "color":            "#F8FAFC",
+    "border-color":     "#475569",
+    "font-size":        "13px",
+}
+_TABLE_HEADER_STYLES = [
+    {
+        "selector": "thead th",
+        "props": [
+            ("background-color", "#1D4ED8"),
+            ("color",            "#FFFFFF"),
+            ("font-weight",      "700"),
+            ("font-size",        "12px"),
+            ("padding",          "10px 8px"),
+            ("border",           "1px solid #3B82F6"),
+        ],
+    },
+    {
+        "selector": "tbody tr:nth-child(even) td",
+        "props": [("background-color", "#2D3748"), ("color", "#F8FAFC")],
+    },
+    {
+        "selector": "tbody tr:nth-child(odd) td",
+        "props": [("background-color", "#243044"), ("color", "#F8FAFC")],
+    },
+]
+
+def style_dark_table(df: pd.DataFrame):
+    """Force des couleurs lisibles dans st.dataframe (thème sombre)."""
+    return (
+        df.style
+        .set_properties(**_TABLE_CELL_PROPS)
+        .set_table_styles(_TABLE_HEADER_STYLES, overwrite=False)
+    )
+
+def style_eval_table(df: pd.DataFrame):
+    """Tableau P@K avec dégradé vert + texte toujours lisible."""
+    return (
+        df.style
+        .background_gradient(subset=["Precision@K"], cmap="Greens", text_color_threshold=0.45)
+        .set_properties(**{"color": "#F8FAFC", "font-size": "13px"})
+        .set_table_styles(_TABLE_HEADER_STYLES, overwrite=False)
+    )
+
+def render_html_table(df: pd.DataFrame) -> None:
+    """Tableau HTML statique — visible sans clic (contourne le canvas st.dataframe)."""
+    headers = "".join(f"<th>{html_module.escape(str(col))}</th>" for col in df.columns)
+    rows = []
+    for i, (_, row) in enumerate(df.iterrows()):
+        zebra = "even" if i % 2 else "odd"
+        cells = "".join(
+            f"<td>{html_module.escape(str(row[col]))}</td>" for col in df.columns
+        )
+        rows.append(f'<tr class="row-{zebra}">{cells}</tr>')
+    st.markdown(
+        f'<div class="cbmir-table-wrap">'
+        f'<table class="cbmir-table"><thead><tr>{headers}</tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
+
+_PIPELINE_COL_CONFIG = {
+    "Rang":       st.column_config.NumberColumn("Rang",      width="small",  format="%d"),
+    "Patient ID": st.column_config.TextColumn("Patient ID",  width="medium"),
+    "Modalité":   st.column_config.TextColumn("Modalité",    width="small"),
+    "Coupe z":    st.column_config.NumberColumn("Coupe z",   width="small",  format="%d"),
+    "Cosinus":    st.column_config.NumberColumn("Cosinus",   width="medium", format="%.4f"),
+    "SSIM":       st.column_config.NumberColumn("SSIM",      width="medium", format="%.4f"),
+    "PSNR":       st.column_config.NumberColumn("PSNR",      width="small",  format="%.1f"),
+}
 
 def preprocess(image_np: np.ndarray) -> torch.Tensor:
     import torch.nn.functional as F
@@ -1106,7 +1162,6 @@ def run_tech_analysis(image_np, model_choice, k, modalite, pid_exclude):
             "Cosinus"   : round(float(r.score), 4),
             "SSIM"      : round(float(m.get("ssim", 0)), 4),
             "PSNR"      : round(float(m.get("psnr", 0)), 1),
-            "Valide"    : "✅" if m.get("valid", True) else "⚠️",
         })
     df = pd.DataFrame(rows)
 
@@ -1120,6 +1175,29 @@ def run_comparison(image_np, k, modalite, pid_exclude):
     query_np = tensor.squeeze().numpy()
     pid_excl = pid_exclude.strip() if pid_exclude else None
     mod      = None if modalite == "Toutes" else modalite
+
+    def _avg_metric(results, metric_name):
+        values = []
+        for result in results or []:
+            metrics = result.metrics if hasattr(result, "metrics") and result.metrics else {}
+            values.append(float(metrics.get(metric_name, 0.0)))
+        return round(float(np.mean(values)), 4) if values else 0.0
+
+    def _avg_hist_normalized(results):
+        values = []
+        for result in results or []:
+            metrics = result.metrics if hasattr(result, "metrics") and result.metrics else {}
+            hist_value = float(metrics.get("hist", 0.0))
+            values.append(np.clip((hist_value + 1.0) / 2.0, 0.0, 1.0))
+        return round(float(np.mean(values)), 4) if values else 0.0
+
+    def _avg_psnr_normalized(results):
+        values = []
+        for result in results or []:
+            metrics = result.metrics if hasattr(result, "metrics") and result.metrics else {}
+            psnr_value = float(metrics.get("psnr", 0.0))
+            values.append(np.clip(psnr_value / 100.0, 0.0, 1.0))
+        return round(float(np.mean(values)), 4) if values else 0.0
 
     t_b = time.time()
     results_b = engine.search(image_tensor=tensor, model="baseline",     k=int(k), modalite=mod, exclude_patient_id=pid_excl)
@@ -1151,11 +1229,31 @@ def run_comparison(image_np, k, modalite, pid_exclude):
                 "z"         : r.slice_z,
                 "Cosinus"   : round(float(r.score), 4),
                 "SSIM"      : round(float(m.get("ssim", 0)), 4),
-                "Valide"    : "✅" if m.get("valid", True) else "⚠️",
             })
         return pd.DataFrame(rows)
 
     fig = build_comparison_figure(query_np, results_b, results_m, results_s)
+
+    radar = {
+        "baseline": {
+            "Cosinus": avg_score(results_b),
+            "SSIM": _avg_metric(results_b, "ssim"),
+            "HIST": _avg_hist_normalized(results_b),
+            "Normalized PSNR": _avg_psnr_normalized(results_b),
+        },
+        "radimagenet": {
+            "Cosinus": avg_score(results_m),
+            "SSIM": _avg_metric(results_m, "ssim"),
+            "HIST": _avg_hist_normalized(results_m),
+            "Normalized PSNR": _avg_psnr_normalized(results_m),
+        },
+        "supcon": {
+            "Cosinus": avg_score(results_s),
+            "SSIM": _avg_metric(results_s, "ssim"),
+            "HIST": _avg_hist_normalized(results_s),
+            "Normalized PSNR": _avg_psnr_normalized(results_s),
+        },
+    }
 
     scores = {
         "baseline"    : (avg_score(results_b), round(t_b, 0)),
@@ -1164,7 +1262,7 @@ def run_comparison(image_np, k, modalite, pid_exclude):
     }
     winner = max(scores.items(), key=lambda x: x[1][0])[0]
 
-    return fig, make_df(results_b), make_df(results_m), make_df(results_s), scores, winner
+    return fig, make_df(results_b), make_df(results_m), make_df(results_s), scores, winner, radar
 
 
 def run_precision_eval(n_queries, k_max, model_choice):
@@ -1216,7 +1314,7 @@ with st.sidebar:
 
     page = st.radio(
         "Navigation",
-        options=["🔍 Pipeline Explorer", "⚖️ Comparaison Modèles", "📊 Évaluation (P@K)", "⚙️ Architecture"],
+        options=["Exploration du pipeline", "Comparaison des modèles", "Évaluation (P@K)", "Architecture"],
         label_visibility="collapsed",
     )
 
@@ -1233,15 +1331,15 @@ with st.sidebar:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PAGE 1 — Pipeline Explorer
+# PAGE 1 — Exploration du pipeline
 # ─────────────────────────────────────────────────────────────────────────────
 
-if page == "🔍 Pipeline Explorer":
-    st.markdown("## MRI Retrieval Analysis")
+if page == "Exploration du pipeline":
+    st.markdown("## Analyse de récupération IRM")
     st.markdown(
         "<div class='pipeline-flow'>"
-        "Image IRM → Prétraitement [128×128] → Encodeur → Vecteur Latent "
-        "→ Qdrant ANN (cosine) → <strong>Top-K patients</strong> "
+        "Image IRM → Prétraitement [128×128] → Encodeur → Vecteur latent "
+        "→ Qdrant ANN (cosinus) → <strong>Top-K patients</strong> "
         "→ Enrichissement MongoDB → Métriques de similarité"
         "</div>",
         unsafe_allow_html=True,
@@ -1345,38 +1443,21 @@ if page == "🔍 Pipeline Explorer":
 
             # ── Tableau interactif ────────────────────────────────
             st.markdown("<p class='section-eyebrow'>Tableau des résultats</p>", unsafe_allow_html=True)
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Rang":      st.column_config.NumberColumn("Rang",     width="small",  format="%d"),
-                    "Patient ID":st.column_config.TextColumn("Patient ID", width="medium"),
-                    "Modalité":  st.column_config.TextColumn("Modalité",   width="small"),
-                    "Coupe z":   st.column_config.NumberColumn("Coupe z",  width="small",  format="%d"),
-                    "Cosinus":   st.column_config.ProgressColumn(
-                                    "Cosinus", min_value=0, max_value=1, format="%.4f", width="medium"),
-                    "SSIM":      st.column_config.ProgressColumn(
-                                    "SSIM",    min_value=0, max_value=1, format="%.4f", width="medium"),
-                    "PSNR":      st.column_config.NumberColumn("PSNR",     width="small",  format="%.1f"),
-                    "Valide":    st.column_config.TextColumn("Valide",     width="small"),
-                },
-            )
+            render_html_table(df)
 
             if n_filtered > 0:
                 st.warning(f"{n_filtered} coupe(s) filtrée(s) car SSIM < {SSIM_DISPLAY_MIN:.2f}.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PAGE 2 — Comparaison Modèles
+# PAGE 2 — Comparaison des modèles
 # ─────────────────────────────────────────────────────────────────────────────
 
-elif page == "⚖️ Comparaison Modèles":
-    st.markdown("## AI Model Benchmark")
+elif page == "Comparaison des modèles":
+    st.markdown("## Comparatif des modèles d'IA")
     st.info(
         "**Comparaison directe** — Modèle morphologique (Baseline) "
-        "vs. Pré-entraîné médical (RadImageNet) vs. Contrastif supervisé (SupCon).",
-        icon="⚖️",
+        "vs. pré-entraîné médical (RadImageNet) vs. contrastif supervisé (SupCon).",
     )
 
     col_q, col_vis = st.columns([1, 2], gap="large")
@@ -1396,7 +1477,7 @@ elif page == "⚖️ Comparaison Modèles":
 
         col_kc, col_mc = st.columns(2)
         k_cmp    = col_kc.number_input("Top-K", min_value=1, max_value=20, value=5, step=1, key="k_cmp")
-        mod_cmp  = col_mc.selectbox("Filtre modalité", ["Toutes", "t1", "t1ce", "t2", "flair"], key="mod_cmp")
+        mod_cmp  = col_mc.selectbox("Filtre de modalité", ["Toutes", "t1", "t1ce", "t2", "flair"], key="mod_cmp")
         pid_cmp  = st.text_input("Exclure Patient ID", key="pid_cmp")
         run_cmp  = st.button("▶  Lancer la comparaison", type="primary", use_container_width=True)
 
@@ -1407,7 +1488,7 @@ elif page == "⚖️ Comparaison Modèles":
                 st.warning("Importez une image IRM pour lancer la comparaison.")
             else:
                 with st.spinner("Interrogation des trois moteurs en parallèle…"):
-                    fig_cmp, df_b, df_m, df_s, scores, winner = run_comparison(
+                    fig_cmp, df_b, df_m, df_s, scores, winner, radar = run_comparison(
                         image_np_cmp, k_cmp, mod_cmp, pid_cmp
                     )
                 import io
@@ -1419,7 +1500,7 @@ elif page == "⚖️ Comparaison Modèles":
                 st.session_state["cmp_fig_bytes"] = buf.read()
                 st.session_state["cmp_results"] = {
                     "df_b": df_b, "df_m": df_m, "df_s": df_s,
-                    "scores": scores, "winner": winner,
+                    "scores": scores, "winner": winner, "radar": radar,
                 }
 
         # ── Affichage permanent depuis session_state ──────────────────────
@@ -1430,6 +1511,7 @@ elif page == "⚖️ Comparaison Modèles":
             df_s     = res["df_s"]
             scores   = res["scores"]
             winner   = res["winner"]
+            radar    = res["radar"]
 
             score_b, lat_b = scores["baseline"]
             score_m, lat_m = scores["radimagenet"]
@@ -1438,12 +1520,12 @@ elif page == "⚖️ Comparaison Modèles":
             # ── Synthèse métriques ─────────────────────────────────
             st.markdown("<p class='section-eyebrow'>Synthèse comparative</p>", unsafe_allow_html=True)
             cb, cm, cs = st.columns(3)
-            cb.metric("🔵 Baseline",    f"{score_b:.4f}",
-                      delta="🏆 Meilleur" if winner == "baseline" else f"{lat_b:.0f} ms")
-            cm.metric("🟠 RadImageNet", f"{score_m:.4f}",
-                      delta="🏆 Meilleur" if winner == "radimagenet" else f"{lat_m:.0f} ms")
-            cs.metric("🟣 SupCon",      f"{score_s:.4f}",
-                      delta="🏆 Meilleur" if winner == "supcon" else f"{lat_s:.0f} ms")
+            cb.metric("Baseline",    f"{score_b:.4f}",
+                      delta="Meilleur" if winner == "baseline" else f"{lat_b:.0f} ms")
+            cm.metric("RadImageNet", f"{score_m:.4f}",
+                      delta="Meilleur" if winner == "radimagenet" else f"{lat_m:.0f} ms")
+            cs.metric("SupCon",      f"{score_s:.4f}",
+                      delta="Meilleur" if winner == "supcon" else f"{lat_s:.0f} ms")
 
             st.divider()
 
@@ -1454,94 +1536,114 @@ elif page == "⚖️ Comparaison Modèles":
 
             st.divider()
 
-            # ── Tableau de comparaison unifié ──────────────────────
-            st.markdown("<p class='section-eyebrow'>Tableau de comparaison — tous modèles</p>", unsafe_allow_html=True)
+            # ── Graphique radar — comparaison unifiée ──────────────────────
+            st.markdown("<p class='section-eyebrow'>Comparaison radar — métriques moyennes</p>", unsafe_allow_html=True)
 
-            frames = []
-            if not df_b.empty:
-                df_b_tagged = df_b.copy(); df_b_tagged.insert(0, "Modèle", "🔵 Baseline");    frames.append(df_b_tagged)
-            if not df_m.empty:
-                df_m_tagged = df_m.copy(); df_m_tagged.insert(0, "Modèle", "🟠 RadImageNet"); frames.append(df_m_tagged)
-            if not df_s.empty:
-                df_s_tagged = df_s.copy(); df_s_tagged.insert(0, "Modèle", "🟣 SupCon");     frames.append(df_s_tagged)
+            def _rgba(hex_color, alpha):
+                h = hex_color.lstrip("#")
+                return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{alpha})"
 
-            if frames:
-                df_all = pd.concat(frames, ignore_index=True)
-                df_style = df_all.style.set_properties(**{
-                    'background-color': '#111827',
-                    'color': '#F1F5F9',
-                    'border-color': '#1E293B'
-                })
-                st.dataframe(
-                    df_style,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Modèle":    st.column_config.TextColumn("Modèle",     width="medium"),
-                        "Rang":      st.column_config.NumberColumn("Rang",     width="small",  format="%d"),
-                        "Patient ID":st.column_config.TextColumn("Patient ID", width="medium"),
-                        "Mod":       st.column_config.TextColumn("Modalité",   width="small"),
-                        "z":         st.column_config.NumberColumn("Coupe z",  width="small",  format="%d"),
-                        "Cosinus":   st.column_config.ProgressColumn(
-                                        "Cosinus", min_value=0, max_value=1, format="%.4f", width="medium"),
-                        "SSIM":      st.column_config.ProgressColumn(
-                                        "SSIM",    min_value=0, max_value=1, format="%.4f", width="medium"),
-                        "Valide":    st.column_config.TextColumn("Valide",     width="small"),
-                    },
+            radar_models = [
+                ("Baseline",    radar["baseline"],    "#3B82F6"),
+                ("RadImageNet", radar["radimagenet"], "#F59E0B"),
+                ("SupCon",      radar["supcon"],      "#8B5CF6"),
+            ]
+
+            radar_theta = ["Cosinus", "SSIM", "HIST", "Normalized PSNR"]
+
+            fig_radar = go.Figure()
+            for name, metrics, color in radar_models:
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=[metrics[axis] for axis in radar_theta],
+                    theta=radar_theta,
+                    fill="toself",
+                    fillcolor=_rgba(color, 0.25),
+                    line=dict(color=color, width=2),
+                    name=name,
+                    opacity=0.85,
+                ))
+
+            fig_radar.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(color="#CBD5E1"),
+                legend=dict(font=dict(color="#CBD5E1")),
+                height=520,
+                polar=dict(
+                    bgcolor="rgba(0,0,0,0)",
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, 1],
+                        tick0=0,
+                        dtick=0.2,
+                        gridcolor="#CBD5E1",
+                        linecolor="#CBD5E1",
+                        tickfont=dict(color="#CBD5E1"),
+                    ),
+                    angularaxis=dict(
+                        rotation=90,
+                        direction="clockwise",
+                        gridcolor="#CBD5E1",
+                        linecolor="#CBD5E1",
+                        tickfont=dict(color="#CBD5E1"),
+                    ),
+                ),
+                margin=dict(l=30, r=30, t=40, b=30),
+            )
+
+            col_left, col_center, col_right = st.columns([1, 2, 1])
+            with col_center:
+                st.plotly_chart(fig_radar, use_container_width=True, theme=None)
+
+            # ── Ranking visuel ─────────────────────────────────
+            st.divider()
+            st.markdown("<p class='section-eyebrow'>Classement par score cosinus moyen</p>", unsafe_allow_html=True)
+
+            ranking = [
+                ("Baseline",    score_b, lat_b, "#3B82F6", winner == "baseline"),
+                ("RadImageNet", score_m, lat_m, "#F59E0B", winner == "radimagenet"),
+                ("SupCon",      score_s, lat_s, "#8B5CF6", winner == "supcon"),
+            ]
+            ranking.sort(key=lambda x: x[1], reverse=True)
+            max_score = max(r[1] for r in ranking)
+
+            for rank_i, (name, score, lat, color, is_win) in enumerate(ranking, 1):
+                bar_pct = int((score / max_score) * 100) if max_score > 0 else 0
+                win_badge = (
+                    f'<span style="background:rgba(52,211,153,0.15);border:1px solid #34d399;'
+                    f'color:#34d399;border-radius:20px;padding:2px 10px;font-size:10px;'
+                    f'font-weight:700;margin-left:8px;">GAGNANT</span>'
+                    if is_win else ""
                 )
-
-                # ── Ranking visuel ─────────────────────────────────
-                st.divider()
-                st.markdown("<p class='section-eyebrow'>Classement par score cosinus moyen</p>", unsafe_allow_html=True)
-
-                ranking = [
-                    ("🔵 Baseline",    score_b, lat_b, "#3B82F6", winner == "baseline"),
-                    ("🟠 RadImageNet", score_m, lat_m, "#F59E0B", winner == "radimagenet"),
-                    ("🟣 SupCon",      score_s, lat_s, "#8B5CF6", winner == "supcon"),
-                ]
-                ranking.sort(key=lambda x: x[1], reverse=True)
-                max_score = max(r[1] for r in ranking)
-
-                for rank_i, (name, score, lat, color, is_win) in enumerate(ranking, 1):
-                    bar_pct = int((score / max_score) * 100) if max_score > 0 else 0
-                    medal = "🥇" if rank_i == 1 else "🥈" if rank_i == 2 else "🥉"
-                    win_badge = (
-                        f'<span style="background:rgba(52,211,153,0.15);border:1px solid #34d399;'
-                        f'color:#34d399;border-radius:20px;padding:2px 10px;font-size:10px;'
-                        f'font-weight:700;margin-left:8px;">🏆 GAGNANT</span>'
-                        if is_win else ""
-                    )
-                    st.markdown(f"""
-                    <div style="background:#111827;border:1px solid rgba(255,255,255,0.07);
-                                border-radius:12px;padding:14px 18px;margin-bottom:8px;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                            <span style="font-size:14px;font-weight:700;color:#F1F5F9;">
-                                {medal} {name}{win_badge}
-                            </span>
-                            <div style="text-align:right;">
-                                <span style="font-size:22px;font-weight:800;color:{color};
-                                             letter-spacing:-0.5px;">{score:.4f}</span>
-                                <span style="font-size:11px;color:#64748B;margin-left:8px;">{lat:.0f} ms</span>
-                            </div>
-                        </div>
-                        <div style="background:#1E293B;border-radius:6px;height:8px;overflow:hidden;">
-                            <div style="background:{color};height:100%;width:{bar_pct}%;
-                                        border-radius:6px;opacity:0.85;"></div>
+                st.markdown(f"""
+                <div style="background:#111827;border:1px solid rgba(255,255,255,0.07);
+                            border-radius:12px;padding:14px 18px;margin-bottom:8px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                        <span style="font-size:14px;font-weight:700;color:#F1F5F9;">
+                            #{rank_i} {name}{win_badge}
+                        </span>
+                        <div style="text-align:right;">
+                            <span style="font-size:22px;font-weight:800;color:{color};
+                                         letter-spacing:-0.5px;">{score:.4f}</span>
+                            <span style="font-size:11px;color:#64748B;margin-left:8px;">{lat:.0f} ms</span>
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.warning("Aucun résultat valide pour aucun modèle.")
+                    <div style="background:#1E293B;border-radius:6px;height:8px;overflow:hidden;">
+                        <div style="background:{color};height:100%;width:{bar_pct}%;
+                                    border-radius:6px;opacity:0.85;"></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE 3 — Évaluation Precision@K
 # ─────────────────────────────────────────────────────────────────────────────
 
-elif page == "📊 Évaluation (P@K)":
-    st.markdown("## Scientific Validation")
+elif page == "Évaluation (P@K)":
+    st.markdown("## Validation scientifique")
     st.info(
-        "**Precision@K par grade tumoral OMS** — Métrique de validation scientifique "
+        "**Precision@K par grade tumoral OMS** — métrique de validation scientifique "
         "calculée sur un échantillon stratifié du corpus BraTS 2021.",
         icon="📊",
     )
@@ -1579,7 +1681,7 @@ elif page == "📊 Évaluation (P@K)":
                 st.divider()
                 st.markdown("<p class='section-eyebrow'>Tableau de résultats détaillé</p>", unsafe_allow_html=True)
                 st.dataframe(
-                    df_eval.style.background_gradient(subset=["Precision@K"], cmap="Greens"),
+                    style_eval_table(df_eval),
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -1589,12 +1691,11 @@ elif page == "📊 Évaluation (P@K)":
 # PAGE 4 — Architecture
 # ─────────────────────────────────────────────────────────────────────────────
 
-elif page == "⚙️ Architecture":
-    st.markdown("## System Architecture")
+elif page == "Architecture":
+    st.markdown("## Architecture du système")
     st.info(
         "Spécifications techniques des trois modèles d'extraction de caractéristiques "
         "et de l'infrastructure de recherche vectorielle.",
-        icon="⚙️",
     )
 
     st.subheader("Modèles d'extraction")
@@ -1603,7 +1704,7 @@ elif page == "⚙️ Architecture":
     with col_a1:
         st.markdown("""
         <div class="spec-card">
-          <h4 style="color:#3b82f6;">🔵 Modèle 1 — Baseline</h4>
+                    <h4 style="color:#3b82f6;">Modèle 1 — Baseline</h4>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("**Architecture** : BraTSAutoencoderLightning")
@@ -1614,7 +1715,7 @@ elif page == "⚙️ Architecture":
     with col_a2:
         st.markdown("""
         <div class="spec-card">
-          <h4 style="color:#fbbf24;">🟠 Modèle 2 — RadImageNet</h4>
+                    <h4 style="color:#fbbf24;">Modèle 2 — RadImageNet</h4>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("**Architecture** : ResNet-50 2D")
@@ -1625,7 +1726,7 @@ elif page == "⚙️ Architecture":
     with col_a3:
         st.markdown("""
         <div class="spec-card">
-          <h4 style="color:#a78bfa;">🟣 Modèle 3 — SupCon</h4>
+                    <h4 style="color:#a78bfa;">Modèle 3 — SupCon</h4>
         </div>
         """, unsafe_allow_html=True)
         st.markdown("**Architecture** : BraTSAutoencoderSupervised")
@@ -1638,20 +1739,20 @@ elif page == "⚙️ Architecture":
 
     col_i1, col_i2 = st.columns(2, gap="medium")
     with col_i1:
-        st.markdown("#### 🗄️ Qdrant — Recherche Vectorielle")
+        st.markdown("#### Qdrant — Recherche vectorielle")
         infra_qdrant = pd.DataFrame({
             "Paramètre" : ["Métrique", "Algorithme ANN", "Collections", "Filtrage"],
             "Valeur"    : ["Cosine Similarity", "HNSW", "3 (baseline / radimagenet / supcon)", "Modalité MRI, Patient ID"],
         })
-        st.dataframe(infra_qdrant, use_container_width=True, hide_index=True)
+        render_html_table(infra_qdrant)
 
     with col_i2:
-        st.markdown("#### 🍃 MongoDB — Enrichissement Métadonnées")
+        st.markdown("#### MongoDB — Enrichissement des métadonnées")
         infra_mongo = pd.DataFrame({
             "Paramètre" : ["Base de données", "Métadonnées", "Métriques calculées", "Dataset"],
             "Valeur"    : ["BraTS Atlas", "Patient ID, Modalité, Coupe z, Stats", "SSIM, PSNR, Histogramme", "BraTS 2021 — 1 251 patients"],
         })
-        st.dataframe(infra_mongo, use_container_width=True, hide_index=True)
+        render_html_table(infra_mongo)
 
     st.divider()
     st.subheader("Flux de traitement")
