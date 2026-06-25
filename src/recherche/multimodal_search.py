@@ -2,10 +2,11 @@
 """
 Recherche multimodale CBMIR — VERSION MULTI-MODELES
 
-Supporte 3 modes (comme UnifiedSearchEngine) :
+Supporte 4 modes :
   - "baseline"    : Auto-encodeur BraTS 2021 (collection brats_embeddings)
   - "radimagenet" : ResNet-50 RadImageNet     (collection radimagenet_embeddings)
-  - "combined"    : Moyenne des scores des deux modèles
+  - "supcon"      : Auto-encodeur Supervised Contrastive (brats_supcon_embeddings)
+  - "combined"    : Moyenne des scores Baseline + RadImageNet
 
 Combine la similarité visuelle (Qdrant) avec les filtres cliniques (MongoDB Atlas).
 
@@ -30,6 +31,7 @@ from src.db.connections import (
     QDRANT_COLLECTION,
 )
 from src.models.autoencoder import BraTSAutoencoderLightning
+from src.models.autoencoder_supervised import BraTSAutoencoderSupervised
 from src.models.radimagenet_extractor import RadImageNetExtractor
 from qdrant_client.models import (
     Filter, FieldCondition, MatchValue,
@@ -43,6 +45,8 @@ CKPT_PATH        = os.getenv("CHECKPOINT_PATH", "./saved_models/my_brats_model.c
 RADIMAGENET_WEIGHTS_DIR     = os.getenv("RADIMAGENET_WEIGHTS_DIR", "./pretrain")
 RADIMAGENET_PROJECTION_PATH = os.getenv("RADIMAGENET_PROJECTION", "./pretrain/radimagenet_projection.pth")
 RADIMAGENET_COLL = "radimagenet_embeddings"
+CKPT_PATH_SUPCON = os.getenv("CHECKPOINT_PATH_SUPCON", "./saved_models/brats_supcon_best.ckpt")
+SUPCON_COLL      = "brats_supcon_embeddings"
 
 
 # ─────────────────────────────────────────────────────────
@@ -65,7 +69,7 @@ class PatientFilter:
 class MultimodalQuery:
     image_tensor       : torch.Tensor
     k                  : int           = 10
-    model              : str           = "baseline"   # "baseline" | "radimagenet" | "combined"
+    model              : str           = "baseline"   # "baseline" | "radimagenet" | "supcon" | "combined"
     patient_filter     : PatientFilter = field(default_factory=PatientFilter)
     score_threshold    : float         = 0.0
     exclude_patient_id : Optional[str] = None   # patient de la requete a exclure
@@ -110,8 +114,9 @@ class MultimodalSearchEngine:
         self.qdrant = get_qdrant_client()
         self.mongo  = get_slices_collection()
 
-        # RadImageNet — chargement lazy (lourd en RAM)
+        # RadImageNet / SupCon — chargement lazy (lourd en RAM)
         self._radimagenet = None
+        self._supcon = None
 
         print(f"[Multimodal] Moteur charge — device: {self.device}")
 
@@ -128,6 +133,14 @@ class MultimodalSearchEngine:
             print(f"[Multimodal] RadImageNet charge — device: {self.device}")
         return self._radimagenet
 
+    @property
+    def supcon(self) -> BraTSAutoencoderSupervised:
+        if self._supcon is None:
+            self._supcon = BraTSAutoencoderSupervised.load_from_checkpoint(CKPT_PATH_SUPCON)
+            self._supcon.eval().to(self.device)
+            print(f"[Multimodal] SupCon charge — device: {self.device}")
+        return self._supcon
+
     # ── Encodage ──────────────────────────────────────────
     @torch.no_grad()
     def encode_baseline(self, image_tensor: torch.Tensor) -> list:
@@ -143,6 +156,12 @@ class MultimodalSearchEngine:
     def encode_radimagenet(self, image_tensor: torch.Tensor) -> list:
         tensor_device = image_tensor.to(self.device)
         return self.radimagenet.extract(tensor_device)
+
+    @torch.no_grad()
+    def encode_supcon(self, image_tensor: torch.Tensor) -> list:
+        img = image_tensor.unsqueeze(0).to(self.device)
+        _, emb_n = self.supcon(img)
+        return emb_n.cpu().numpy().astype("float32")[0].tolist()
 
     # ── Filtrage MongoDB ───────────────────────────────────
     def _filter_by_patient(self, pf: PatientFilter) -> list:
@@ -337,7 +356,7 @@ class MultimodalSearchEngine:
     def search(self, query: MultimodalQuery) -> list:
         """
         Recherche multimodale avec patients distincts.
-        model : "baseline" | "radimagenet" | "combined"
+        model : "baseline" | "radimagenet" | "supcon" | "combined"
         """
         pf = query.patient_filter
         fetch_limit = max(query.k * 10, 50)
@@ -366,6 +385,20 @@ class MultimodalSearchEngine:
             entries = [
                 {"hit": h, "score": h.score, "score_baseline": 0.0,
                  "score_radimagenet": h.score, "model_used": "radimagenet"}
+                for h in top
+            ]
+            return self._build_results(entries)
+
+        elif query.model == "supcon":
+            vec  = self.encode_supcon(query.image_tensor)
+            best = self._search_one_model(
+                SUPCON_COLL, vec, fetch_limit, query.score_threshold,
+                pf, query.exclude_patient_id, namespace="supcon_",
+            )
+            top = sorted(best.values(), key=lambda h: h.score, reverse=True)[:query.k]
+            entries = [
+                {"hit": h, "score": h.score, "score_baseline": 0.0,
+                 "score_radimagenet": 0.0, "model_used": "supcon"}
                 for h in top
             ]
             return self._build_results(entries)

@@ -28,99 +28,64 @@ st.set_page_config(
     page_title="CBMIR — Aide à la Décision Clinique",
     page_icon="⚕",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-# ── CSS Medical Grade ────────────────────────────────────────────────────────
+# ── CSS — thème clinique clair (inspiré mockup, widgets natifs Streamlit) ─────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 html, body, [class*="css"] {
-    font-family: 'IBM Plex Sans', sans-serif !important;
+    font-family: 'Inter', sans-serif !important;
 }
 
-/* Header institutionnel */
-.clin-header {
-    background: #ffffff;
-    border: 1px solid #dde6f0;
-    border-radius: 12px;
-    padding: 20px 28px;
-    margin-bottom: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 2px 10px rgba(31, 45, 61, 0.06);
-}
-.clin-header-title {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: #1f2d3d;
-    margin: 0;
-}
-.clin-header-sub {
-    font-size: 0.84rem;
-    color: #6b7c93;
-    margin-top: 3px;
-}
-.clin-tag {
-    background: #eef3f9;
-    border: 1px solid #dde6f0;
-    border-radius: 6px;
-    padding: 5px 14px;
-    font-size: 0.78rem;
-    color: #6b7c93;
+.stApp { background: #F4F7FB !important; }
+
+section[data-testid="stSidebar"] {
+    background: #FFFFFF !important;
+    border-right: 1px solid #E2E8F0 !important;
 }
 
-/* Section titles */
+.block-container { padding-top: 1.5rem !important; }
+
+.sidebar-title {
+    font-size: 1.1rem; font-weight: 700; color: #1E293B; margin: 0;
+}
+.sidebar-sub {
+    font-size: 0.8rem; color: #64748B; margin-top: 2px;
+}
+.sidebar-model {
+    background: #F5F3FF; border: 1px solid #DDD6FE; border-radius: 10px;
+    padding: 12px 14px; margin-top: 1.5rem;
+}
+.sidebar-model-label {
+    font-size: 0.7rem; font-weight: 600; color: #64748B;
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.sidebar-model-name { font-size: 0.95rem; font-weight: 700; color: #7C3AED; margin-top: 2px; }
+
 .section-label {
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: #1d6fa8;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    border-bottom: 1px solid #dde6f0;
-    padding-bottom: 5px;
-    margin: 18px 0 10px 0;
+    font-size: 0.78rem; font-weight: 600; color: #0066FF;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    border-bottom: 1px solid #E2E8F0;
+    padding-bottom: 5px; margin: 18px 0 10px 0;
 }
 
-/* Carte résultat */
-.case-card {
-    background: #ffffff;
-    border: 1px solid #dde6f0;
-    border-radius: 12px;
-    padding: 14px 16px;
-    box-shadow: 0 2px 8px rgba(31, 45, 61, 0.05);
+[data-testid="stMetric"] {
+    background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 10px;
+    padding: 12px 16px; box-shadow: 0 1px 3px rgba(15,23,42,0.04);
 }
-.case-rank {
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: #6b7c93;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 4px;
-}
-.case-diag {
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: #1d6fa8;
-    margin-top: 8px;
-}
-.case-meta {
-    font-size: 0.82rem;
-    color: #4a5568;
-    background: #eef3f9;
-    border-radius: 8px;
-    padding: 8px 10px;
-    margin-top: 8px;
-    line-height: 1.6;
-}
-.sim-badge-high { background: rgba(47,158,143,0.12); color: #2f9e8f; border-radius: 6px; padding: 3px 10px; font-size: 0.8rem; font-weight: 600; display: inline-block; }
-.sim-badge-mid  { background: rgba(214,147,42,0.12);  color: #d6932a; border-radius: 6px; padding: 3px 10px; font-size: 0.8rem; font-weight: 600; display: inline-block; }
-.sim-badge-low  { background: rgba(196,86,74,0.12);   color: #c4564a; border-radius: 6px; padding: 3px 10px; font-size: 0.8rem; font-weight: 600; display: inline-block; }
 
-/* Stcachet de masquage sidebar */
-section[data-testid="stSidebar"] { display: none; }
+.stButton > button[kind="primary"] {
+    background: #0066FF !important; border: none !important;
+    border-radius: 8px !important; font-weight: 600 !important;
+}
+
+.stSelectbox > div > div, .stNumberInput > div > div, .stTextInput > div > div {
+    background: #FFFFFF !important; border: 1px solid #E2E8F0 !important;
+    border-radius: 8px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,6 +107,11 @@ def load_engine():
     return MultimodalSearchEngine()
 
 engine = load_engine()
+
+# ── Session state (affichage persistant après rerun) ──────────────────────────
+if "clin_results"  not in st.session_state: st.session_state["clin_results"]  = None
+if "clin_stats"    not in st.session_state: st.session_state["clin_stats"]    = None
+if "clin_query_np" not in st.session_state: st.session_state["clin_query_np"] = None
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 def preprocess(image_np: np.ndarray) -> torch.Tensor:
@@ -202,16 +172,25 @@ def build_results_figure(query_np, results) -> plt.Figure:
     plt.tight_layout(pad=1.0)
     return fig
 
-# ── En-tête institutionnel ───────────────────────────────────────────────────
-st.markdown("""
-<div class="clin-header">
-  <div>
-    <div class="clin-header-title">Recherche de cas IRM similaires</div>
-    <div class="clin-header-sub">Aide à la décision par imagerie comparative et données cliniques — Moteur SupCon</div>
-  </div>
-  <div class="clin-tag">Usage consultatif — ne remplace pas un diagnostic médical</div>
-</div>
-""", unsafe_allow_html=True)
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <p class="sidebar-title">CBMIR</p>
+    <p class="sidebar-sub">Aide à la décision clinique</p>
+    <div class="sidebar-model">
+        <div class="sidebar-model-label">Moteur actif</div>
+        <div class="sidebar-model-name">SupCon</div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.caption(
+        "Usage consultatif — ne remplace pas un diagnostic médical."
+    )
+
+# ── En-tête ───────────────────────────────────────────────────────────────────
+st.title("Recherche de cas IRM similaires")
+st.caption(
+    "Aide à la décision par imagerie comparative et données cliniques — Moteur SupCon"
+)
 
 st.info(
     "Importez une coupe IRM et définissez optionnellement le profil de votre patient. "
@@ -257,8 +236,8 @@ with col_left:
         age_max_in = st.number_input("Âge max", min_value=0, max_value=120, value=0,
                                      help="0 = sans filtre")
 
-    hopital_in     = st.selectbox("Établissement", options=HOPITAUX)
-    diagnostic_in  = st.selectbox("Filtrer par diagnostic", options=DIAGNOSTICS)
+    hopital_in    = st.selectbox("Établissement", options=HOPITAUX)
+    diagnostic_in = st.selectbox("Filtrer par diagnostic", options=DIAGNOSTICS)
 
     st.markdown("<div class='section-label'>Paramètres de la recherche</div>", unsafe_allow_html=True)
 
@@ -276,14 +255,12 @@ with col_left:
     st.divider()
     run_btn = st.button("Lancer la recherche clinique", type="primary", use_container_width=True)
 
-# ── Zone des résultats ────────────────────────────────────────────────────────
+# ── Zone des résultats ───────────────────────────────────────────────────────
 with col_right:
     st.subheader("Dossiers similaires identifiés")
     st.divider()
 
-    if not run_btn:
-        st.caption("Les résultats apparaîtront ici après le lancement de la recherche.")
-    else:
+    if run_btn:
         if image_np is None:
             st.warning("Veuillez importer une image IRM avant de lancer la recherche.")
         else:
@@ -310,65 +287,72 @@ with col_right:
                 results = engine.search(query)
                 stats   = engine.stats_by_filter(pf)
 
-            # ── Indicateurs de résumé ────────────────────────────────────────
             query_np = image_np.mean(axis=2) if image_np.ndim == 3 else image_np
+            st.session_state["clin_results"]  = results
+            st.session_state["clin_stats"]    = stats
+            st.session_state["clin_query_np"] = query_np
 
-            mc1, mc2, mc3 = st.columns(3)
-            mc1.metric("Cas identifiés", len(results))
-            mc2.metric("Dossiers éligibles", stats.get("total_eligible", "—"))
-            mc3.metric("Total base", stats.get("total_collection", "—"))
+    results  = st.session_state.get("clin_results")
+    stats    = st.session_state.get("clin_stats")
+    query_np = st.session_state.get("clin_query_np")
 
-            st.divider()
+    if results is None and not run_btn:
+        st.caption("Les résultats apparaîtront ici après le lancement de la recherche.")
+    elif results is not None:
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Cas identifiés", len(results))
+        mc2.metric("Dossiers éligibles", stats.get("total_eligible", "—") if stats else "—")
+        mc3.metric("Total base", stats.get("total_collection", "—") if stats else "—")
 
-            # ── Figure comparative ───────────────────────────────────────────
-            if results:
-                fig = build_results_figure(query_np, results)
-                st.pyplot(fig, use_container_width=True)
-                plt.close(fig)
-            else:
-                st.info("Aucun cas similaire trouvé pour ces critères.")
+        st.divider()
 
-            # ── Cartes de résultats ──────────────────────────────────────────
-            if results:
-                st.markdown("<div class='section-label' style='margin-top:20px;'>Détail des dossiers</div>",
-                            unsafe_allow_html=True)
+        if results and query_np is not None:
+            fig = build_results_figure(query_np, results)
+            st.pyplot(fig, use_container_width=True)
+            plt.close(fig)
+        elif not results:
+            st.info("Aucun cas similaire trouvé pour ces critères.")
 
-                card_cols = st.columns(min(len(results), 5))
-                for i, r in enumerate(results[:5]):
-                    label, level = similarity_label(r.score)
-                    sexe_age = f"{r.sexe}, {r.age} ans" if r.sexe and r.age else "Infos patient N/D"
-                    badge_class = f"sim-badge-{level}"
-                    with card_cols[i]:
-                        st.markdown(f"""
-                        <div class="case-card">
-                            <div class="case-rank">Cas {i+1}</div>
-                            <div><span class="{badge_class}">{label}</span></div>
-                            <div class="case-diag">{r.diagnostic or 'Diagnostic inconnu'}</div>
-                            <div class="case-meta">
-                                <b>Patient</b> : {r.patient_id}<br>
-                                <b>Profil</b> : {sexe_age}<br>
-                                <b>Hôpital</b> : {r.hopital or 'N/D'}<br>
-                                <b>Modalité</b> : {r.modalite.upper()} (Z={r.slice_z})
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+        if results:
+            st.markdown(
+                "<div class='section-label' style='margin-top:20px;'>Détail des dossiers</div>",
+                unsafe_allow_html=True,
+            )
 
-                # ── Tableau synthétique ──────────────────────────────────────
-                with st.expander("Tableau récapitulatif des résultats"):
-                    df_rows = []
-                    for r in results:
-                        label, _ = similarity_label(r.score)
-                        df_rows.append({
-                            "Rang"         : r.rank,
-                            "Patient ID"   : r.patient_id,
-                            "Similarité"   : label,
-                            "Score"        : round(r.score, 4),
-                            "Modalité"     : r.modalite.upper(),
-                            "Coupe Z"      : r.slice_z,
-                            "Diagnostic"   : r.diagnostic or "N/D",
-                            "Hôpital"      : r.hopital or "N/D",
-                        })
-                    st.dataframe(pd.DataFrame(df_rows), use_container_width=True, hide_index=True)
+            card_cols = st.columns(min(len(results), 5))
+            for i, r in enumerate(results[:5]):
+                label, _ = similarity_label(r.score)
+                sexe_age = f"{r.sexe}, {r.age} ans" if r.sexe and r.age else "Infos patient N/D"
+                with card_cols[i]:
+                    with st.container(border=True):
+                        st.caption(f"Cas {i + 1}")
+                        st.markdown(f"**{label}** — score `{r.score:.4f}`")
+                        st.markdown(f"**{r.diagnostic or 'Diagnostic inconnu'}**")
+                        img = safe_load(r.file_path)
+                        if img is not None:
+                            st.image(img, use_container_width=True)
+                        st.markdown(
+                            f"**Patient** : {r.patient_id}  \n"
+                            f"**Profil** : {sexe_age}  \n"
+                            f"**Hôpital** : {r.hopital or 'N/D'}  \n"
+                            f"**Modalité** : {r.modalite.upper()} (Z={r.slice_z})"
+                        )
+
+            with st.expander("Tableau récapitulatif des résultats"):
+                df_rows = []
+                for r in results:
+                    label, _ = similarity_label(r.score)
+                    df_rows.append({
+                        "Rang"       : r.rank,
+                        "Patient ID" : r.patient_id,
+                        "Similarité" : label,
+                        "Score"      : round(r.score, 4),
+                        "Modalité"   : r.modalite.upper(),
+                        "Coupe Z"    : r.slice_z,
+                        "Diagnostic" : r.diagnostic or "N/D",
+                        "Hôpital"    : r.hopital or "N/D",
+                    })
+                st.dataframe(pd.DataFrame(df_rows), use_container_width=True, hide_index=True)
 
 # ── Avertissement légal ───────────────────────────────────────────────────────
 st.divider()

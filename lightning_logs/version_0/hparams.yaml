@@ -1,0 +1,2 @@
+num_classes: 3
+supcon_ckpt_path: ./saved_models/model_final_v2.ckpt
