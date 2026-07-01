@@ -1,0 +1,12 @@
+- [ ] Remplacer l’UI de `src/interface/app_clinique.py` selon le cahier des charges (palette, typography, suppression bootstrap/effets)
+- [ ] Refondre navbar (Logo CBMIR, titre/sous-titre, cartes Model/Status, carte utilisateur sans nom)
+- [ ] Refondre sidebar en 3 cartes : Patient Examination Summary, Search Method, Search Parameters (Search Similar Cases)
+- [ ] Remplacer le panneau “Filtres cliniques” par une barre horizontale de filtres compacts (1 seule ligne)
+- [ ] Supprimer les 3 grandes cartes pipeline et les remplacer par une timeline discrète
+- [ ] Recréer les cartes résultats en “fiches patients” avec badges et bouton View Details
+- [ ] Ajouter panneau “AI Explanation” avec liste + icônes Check
+- [ ] Ajouter carte technique “AI Engine” (compact)
+- [ ] Refondre empty state avec illustration SVG + bouton Upload MRI
+- [ ] Remplacer legal notice jaune par une carte discrète avec icône Shield
+- [ ] Ajouter Fade In léger (200ms) sur les cartes
+- [ ] Vérifier adaptation 1920×1080 (minimiser marges/hauteurs, réduire scroll)
