@@ -3,7 +3,7 @@ CBMIR — Interface Technique (Streamlit)
 Design : Dashboard analytique médical — Mode sombre natif
 Sections :
   1. 🔍 Pipeline Explorer  — vecteur latent, latences, métriques, résultats visuels
-  2. ⚖️ Comparaison Modèles — Baseline vs RadImageNet vs SupCon
+  2. ⚖️ Comparaison Modèles — Baseline vs SupCon vs Guided (CGR)
   3. 📊 Évaluation (P@K)   — Precision@K par grade tumoral
   4. ⚙️ Architecture        — Spécifications techniques
 Port : 8501
@@ -1013,12 +1013,12 @@ def build_pipeline_figure(query_np, results) -> plt.Figure:
     return fig
 
 
-def build_comparison_figure(query_np, results_b, results_m, results_s) -> plt.Figure:
-    n = min(5, len(results_b), len(results_m), len(results_s))
+def build_comparison_figure(query_np, results_b, results_s, results_g) -> plt.Figure:
+    n = min(5, len(results_b), len(results_s), len(results_g))
     fig, axes = plt.subplots(4, n + 1, figsize=((n + 1) * 3.1, 11.5), squeeze=False)
     fig.patch.set_facecolor("none")
 
-    MODEL_COLORS = {"baseline": "#3b82f6", "radimagenet": "#fbbf24", "supcon": "#a78bfa"}
+    MODEL_COLORS = {"baseline": "#3b82f6", "supcon": "#a78bfa", "guided": "#10b981"}
 
     def show(ax, img, title, color, bw=1.5):
         ax.set_facecolor("#1a1d24")
@@ -1034,7 +1034,6 @@ def build_comparison_figure(query_np, results_b, results_m, results_s) -> plt.Fi
         ax.set_xticks([])
         ax.set_yticks([])
 
-    # Ligne 0 — Headers colonnes
     for ax in axes[0]:
         ax.set_facecolor("none")
         ax.axis("off")
@@ -1044,9 +1043,8 @@ def build_comparison_figure(query_np, results_b, results_m, results_s) -> plt.Fi
         axes[0, j].text(0.5, 0.5, f"Résultat #{j}", ha="center", va="center",
                         color="#64748b", fontsize=8.5, fontweight="bold", transform=axes[0, j].transAxes)
 
-    # Lignes modèles
     for row_idx, (results, model_key) in enumerate(
-        [(results_b, "baseline"), (results_m, "radimagenet"), (results_s, "supcon")], start=1
+        [(results_b, "baseline"), (results_s, "supcon"), (results_g, "guided")], start=1
     ):
         color_model = MODEL_COLORS[model_key]
         show(axes[row_idx, 0], query_np, "REQUÊTE", "#4fc3f7", 2.5)
@@ -1057,9 +1055,9 @@ def build_comparison_figure(query_np, results_b, results_m, results_s) -> plt.Fi
                  f"#{r.rank}  {r.score:.4f}\n{r.modalite.upper()} z={r.slice_z}", score_color)
 
     labels = [
-        (0.66, "BASELINE\nNon-supervisé",   "#3b82f6"),
-        (0.40, "RADIMAGENET\nResNet-50",     "#fbbf24"),
-        (0.15, "SUPCON\nSupervisé",          "#a78bfa"),
+        (0.66, "BASELINE\nNon-supervisé", "#3b82f6"),
+        (0.40, "SUPCON\nContrastif",       "#a78bfa"),
+        (0.15, "GUIDED\nCGR",             "#10b981"),
     ]
     for y, lbl, col in labels:
         fig.text(0.005, y, lbl, color=col, fontsize=9.5, fontweight="bold",
@@ -1079,14 +1077,19 @@ def run_tech_analysis(image_np, model_choice, k, modalite, pid_exclude):
     query_np = tensor.squeeze().numpy()
     pid_excl = pid_exclude.strip() if pid_exclude else None
 
-    model_map = {"Baseline": "baseline", "RadImageNet": "radimagenet", "SupCon": "supcon"}
+    model_map = {
+        "Baseline": "baseline",
+        "SupCon": "supcon",
+        "Guided (CGR)": "guided",
+    }
     selected_engine = model_map.get(model_choice, "baseline")
 
     t_enc_start = time.time()
     if selected_engine == "baseline":
         vecteur_brut = engine.encode_baseline(tensor)
-    elif selected_engine == "radimagenet":
-        vecteur_brut = engine.encode_radimagenet(tensor)
+    elif selected_engine == "guided":
+        grade_info = engine.predict_grade(tensor)
+        vecteur_brut = grade_info["vector"]
     else:
         vecteur_brut = engine.encode_supcon(tensor)
     t_enc_end = time.time()
@@ -1128,9 +1131,12 @@ def run_tech_analysis(image_np, model_choice, k, modalite, pid_exclude):
             "modalite"  : r0.modalite,
             "slice_z"   : r0.slice_z,
             "stats"     : r0.stats,
+            "grade"     : getattr(r0, "grade", ""),
         },
         "metrics": r0.metrics,
     }
+    if selected_engine == "guided" and engine.last_guided_info:
+        payload_top1["guided"] = engine.last_guided_info
 
     latencies = {
         "encoding_ms"  : round((t_enc_end - t_enc_start) * 1000, 1),
@@ -1159,6 +1165,7 @@ def run_tech_analysis(image_np, model_choice, k, modalite, pid_exclude):
             "Patient ID": r.patient_id[-12:],
             "Modalité"  : r.modalite.upper(),
             "Coupe z"   : r.slice_z,
+            "Grade OMS" : getattr(r, "grade", "") or "N/D",
             "Cosinus"   : round(float(r.score), 4),
             "SSIM"      : round(float(m.get("ssim", 0)), 4),
             "PSNR"      : round(float(m.get("psnr", 0)), 1),
@@ -1200,20 +1207,20 @@ def run_comparison(image_np, k, modalite, pid_exclude):
         return round(float(np.mean(values)), 4) if values else 0.0
 
     t_b = time.time()
-    results_b = engine.search(image_tensor=tensor, model="baseline",     k=int(k), modalite=mod, exclude_patient_id=pid_excl)
+    results_b = engine.search(image_tensor=tensor, model="baseline", k=int(k), modalite=mod, exclude_patient_id=pid_excl)
     t_b = (time.time() - t_b) * 1000
 
-    t_m = time.time()
-    results_m = engine.search(image_tensor=tensor, model="radimagenet",  k=int(k), modalite=mod, exclude_patient_id=pid_excl)
-    t_m = (time.time() - t_m) * 1000
-
     t_s = time.time()
-    results_s = engine.search(image_tensor=tensor, model="supcon",       k=int(k), modalite=mod, exclude_patient_id=pid_excl)
+    results_s = engine.search(image_tensor=tensor, model="supcon",   k=int(k), modalite=mod, exclude_patient_id=pid_excl)
     t_s = (time.time() - t_s) * 1000
 
+    t_g = time.time()
+    results_g = engine.search(image_tensor=tensor, model="guided",   k=int(k), modalite=mod, exclude_patient_id=pid_excl)
+    t_g = (time.time() - t_g) * 1000
+
     results_b = filter_valid_results(results_b, query_np, safe_load, ssim_min=SSIM_DISPLAY_MIN)
-    results_m = filter_valid_results(results_m, query_np, safe_load, ssim_min=SSIM_DISPLAY_MIN)
     results_s = filter_valid_results(results_s, query_np, safe_load, ssim_min=SSIM_DISPLAY_MIN)
+    results_g = filter_valid_results(results_g, query_np, safe_load, ssim_min=SSIM_DISPLAY_MIN)
 
     def avg_score(res):
         return round(float(np.mean([r.score for r in res])), 4) if res else 0.0
@@ -1232,7 +1239,7 @@ def run_comparison(image_np, k, modalite, pid_exclude):
             })
         return pd.DataFrame(rows)
 
-    fig = build_comparison_figure(query_np, results_b, results_m, results_s)
+    fig = build_comparison_figure(query_np, results_b, results_s, results_g)
 
     radar = {
         "baseline": {
@@ -1241,28 +1248,28 @@ def run_comparison(image_np, k, modalite, pid_exclude):
             "HIST": _avg_hist_normalized(results_b),
             "Normalized PSNR": _avg_psnr_normalized(results_b),
         },
-        "radimagenet": {
-            "Cosinus": avg_score(results_m),
-            "SSIM": _avg_metric(results_m, "ssim"),
-            "HIST": _avg_hist_normalized(results_m),
-            "Normalized PSNR": _avg_psnr_normalized(results_m),
-        },
         "supcon": {
             "Cosinus": avg_score(results_s),
             "SSIM": _avg_metric(results_s, "ssim"),
             "HIST": _avg_hist_normalized(results_s),
             "Normalized PSNR": _avg_psnr_normalized(results_s),
         },
+        "guided": {
+            "Cosinus": avg_score(results_g),
+            "SSIM": _avg_metric(results_g, "ssim"),
+            "HIST": _avg_hist_normalized(results_g),
+            "Normalized PSNR": _avg_psnr_normalized(results_g),
+        },
     }
 
     scores = {
-        "baseline"    : (avg_score(results_b), round(t_b, 0)),
-        "radimagenet" : (avg_score(results_m), round(t_m, 0)),
-        "supcon"      : (avg_score(results_s), round(t_s, 0)),
+        "baseline": (avg_score(results_b), round(t_b, 0)),
+        "supcon"  : (avg_score(results_s), round(t_s, 0)),
+        "guided"  : (avg_score(results_g), round(t_g, 0)),
     }
     winner = max(scores.items(), key=lambda x: x[1][0])[0]
 
-    return fig, make_df(results_b), make_df(results_m), make_df(results_s), scores, winner, radar
+    return fig, make_df(results_b), make_df(results_s), make_df(results_g), scores, winner, radar
 
 
 def run_precision_eval(n_queries, k_max, model_choice):
@@ -1274,7 +1281,7 @@ def run_precision_eval(n_queries, k_max, model_choice):
         m for m in MODELS if m == model_choice.lower()
     ]
     report = run_evaluation(
-        n_queries=int(n_queries),
+        n_per_grade=int(n_queries) // 3, # ✅ CORRECTI ON ICI
         k_values=k_vals,
         models=models_to_run,
         save_report=True,
@@ -1363,7 +1370,11 @@ if page == "Exploration du pipeline":
         else:
             image_np = st.session_state.get("pipeline_image", None)
 
-        model_choice = st.selectbox("Modèle extracteur", ["Baseline", "RadImageNet", "SupCon"], index=2)
+        model_choice = st.selectbox(
+            "Modèle extracteur",
+            ["Baseline", "SupCon", "Guided (CGR)"],
+            index=2,
+        )
         col_k, col_mod = st.columns(2)
         k_val    = col_k.number_input("Top-K résultats", min_value=1, max_value=20, value=5, step=1)
         modalite = col_mod.selectbox("Modalité", ["Toutes", "t1", "t1ce", "t2", "flair"])
@@ -1456,8 +1467,8 @@ if page == "Exploration du pipeline":
 elif page == "Comparaison des modèles":
     st.markdown("## Comparatif des modèles d'IA")
     st.info(
-        "**Comparaison directe** — Modèle morphologique (Baseline) "
-        "vs. pré-entraîné médical (RadImageNet) vs. contrastif supervisé (SupCon).",
+        "**Comparaison directe** — Modèle non supervisé (Baseline) "
+        "vs. contrastif supervisé (SupCon) vs. Classification-Guided Retrieval (Guided).",
     )
 
     col_q, col_vis = st.columns([1, 2], gap="large")
@@ -1487,8 +1498,8 @@ elif page == "Comparaison des modèles":
             if image_np_cmp is None:
                 st.warning("Importez une image IRM pour lancer la comparaison.")
             else:
-                with st.spinner("Interrogation des trois moteurs en parallèle…"):
-                    fig_cmp, df_b, df_m, df_s, scores, winner, radar = run_comparison(
+                with st.spinner("Interrogation des trois moteurs…"):
+                    fig_cmp, df_b, df_s, df_g, scores, winner, radar = run_comparison(
                         image_np_cmp, k_cmp, mod_cmp, pid_cmp
                     )
                 import io
@@ -1499,7 +1510,7 @@ elif page == "Comparaison des modèles":
                 buf.seek(0)
                 st.session_state["cmp_fig_bytes"] = buf.read()
                 st.session_state["cmp_results"] = {
-                    "df_b": df_b, "df_m": df_m, "df_s": df_s,
+                    "df_b": df_b, "df_s": df_s, "df_g": df_g,
                     "scores": scores, "winner": winner, "radar": radar,
                 }
 
@@ -1507,25 +1518,24 @@ elif page == "Comparaison des modèles":
         if st.session_state["cmp_results"] is not None:
             res      = st.session_state["cmp_results"]
             df_b     = res["df_b"]
-            df_m     = res["df_m"]
             df_s     = res["df_s"]
+            df_g     = res["df_g"]
             scores   = res["scores"]
             winner   = res["winner"]
             radar    = res["radar"]
 
             score_b, lat_b = scores["baseline"]
-            score_m, lat_m = scores["radimagenet"]
             score_s, lat_s = scores["supcon"]
+            score_g, lat_g = scores["guided"]
 
-            # ── Synthèse métriques ─────────────────────────────────
             st.markdown("<p class='section-eyebrow'>Synthèse comparative</p>", unsafe_allow_html=True)
-            cb, cm, cs = st.columns(3)
-            cb.metric("Baseline",    f"{score_b:.4f}",
+            cb, cs, cg = st.columns(3)
+            cb.metric("Baseline", f"{score_b:.4f}",
                       delta="Meilleur" if winner == "baseline" else f"{lat_b:.0f} ms")
-            cm.metric("RadImageNet", f"{score_m:.4f}",
-                      delta="Meilleur" if winner == "radimagenet" else f"{lat_m:.0f} ms")
-            cs.metric("SupCon",      f"{score_s:.4f}",
+            cs.metric("SupCon", f"{score_s:.4f}",
                       delta="Meilleur" if winner == "supcon" else f"{lat_s:.0f} ms")
+            cg.metric("Guided (CGR)", f"{score_g:.4f}",
+                      delta="Meilleur" if winner == "guided" else f"{lat_g:.0f} ms")
 
             st.divider()
 
@@ -1544,9 +1554,9 @@ elif page == "Comparaison des modèles":
                 return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{alpha})"
 
             radar_models = [
-                ("Baseline",    radar["baseline"],    "#3B82F6"),
-                ("RadImageNet", radar["radimagenet"], "#F59E0B"),
-                ("SupCon",      radar["supcon"],      "#8B5CF6"),
+                ("Baseline",    radar["baseline"], "#3B82F6"),
+                ("SupCon",      radar["supcon"],   "#8B5CF6"),
+                ("Guided (CGR)", radar["guided"],  "#10B981"),
             ]
 
             radar_theta = ["Cosinus", "SSIM", "HIST", "Normalized PSNR"]
@@ -1600,9 +1610,9 @@ elif page == "Comparaison des modèles":
             st.markdown("<p class='section-eyebrow'>Classement par score cosinus moyen</p>", unsafe_allow_html=True)
 
             ranking = [
-                ("Baseline",    score_b, lat_b, "#3B82F6", winner == "baseline"),
-                ("RadImageNet", score_m, lat_m, "#F59E0B", winner == "radimagenet"),
-                ("SupCon",      score_s, lat_s, "#8B5CF6", winner == "supcon"),
+                ("Baseline",     score_b, lat_b, "#3B82F6", winner == "baseline"),
+                ("SupCon",       score_s, lat_s, "#8B5CF6", winner == "supcon"),
+                ("Guided (CGR)", score_g, lat_g, "#10B981", winner == "guided"),
             ]
             ranking.sort(key=lambda x: x[1], reverse=True)
             max_score = max(r[1] for r in ranking)
@@ -1654,7 +1664,10 @@ elif page == "Évaluation (P@K)":
         st.markdown("<p class='section-eyebrow'>Paramètres d'évaluation</p>", unsafe_allow_html=True)
         n_queries  = st.slider("Nombre de requêtes (N)", min_value=10, max_value=100, value=50, step=5)
         k_max_eval = st.radio("K maximum évalué", options=[1, 3, 5, 10], index=3, horizontal=True)
-        model_eval = st.selectbox("Modèle(s)", ["Tous", "Baseline", "Radimagenet", "Supcon"])
+        model_eval = st.selectbox(
+            "Modèle(s)",
+            ["Tous", "Baseline", "Supcon", "Guided"],
+        )
         run_eval   = st.button("▶  Lancer Precision@K", type="primary", use_container_width=True)
 
         st.caption(
@@ -1680,11 +1693,7 @@ elif page == "Évaluation (P@K)":
 
                 st.divider()
                 st.markdown("<p class='section-eyebrow'>Tableau de résultats détaillé</p>", unsafe_allow_html=True)
-                st.dataframe(
-                    style_eval_table(df_eval),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                render_html_table(df_eval)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1715,23 +1724,23 @@ elif page == "Architecture":
     with col_a2:
         st.markdown("""
         <div class="spec-card">
-                    <h4 style="color:#fbbf24;">Modèle 2 — RadImageNet</h4>
+                    <h4 style="color:#a78bfa;">Modèle 2 — SupCon</h4>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("**Architecture** : ResNet-50 2D")
-        st.markdown("**Pré-entraînement** : RadImageNet (médical)")
-        st.markdown("**Collection Qdrant** : `radimagenet_embeddings`")
-        st.metric("Dimension Embedding", "2048D")
+        st.markdown("**Architecture** : BraTSAutoencoderSupervised")
+        st.markdown("**Supervision** : Supervised Contrastive Loss (grades OMS)")
+        st.markdown("**Collection Qdrant** : `brats_supcon_embeddings`")
+        st.metric("Dimension Embedding", "256D")
 
     with col_a3:
         st.markdown("""
         <div class="spec-card">
-                    <h4 style="color:#a78bfa;">Modèle 3 — SupCon</h4>
+                    <h4 style="color:#10b981;">Modèle 3 — Guided (CGR)</h4>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("**Architecture** : BraTSAutoencoderSupervised")
-        st.markdown("**Supervision** : Grades OMS (II, III, IV)")
-        st.markdown("**Collection Qdrant** : `brats_supcon_embeddings`")
+        st.markdown("**Architecture** : SupCon gelé + MLP classifieur")
+        st.markdown("**Stratégie** : Prédiction grade → filtre MongoDB → recherche SupCon")
+        st.markdown("**Collection Qdrant** : `brats_supcon_embeddings` (filtrée)")
         st.metric("Dimension Embedding", "256D")
 
     st.divider()
@@ -1742,7 +1751,7 @@ elif page == "Architecture":
         st.markdown("#### Qdrant — Recherche vectorielle")
         infra_qdrant = pd.DataFrame({
             "Paramètre" : ["Métrique", "Algorithme ANN", "Collections", "Filtrage"],
-            "Valeur"    : ["Cosine Similarity", "HNSW", "3 (baseline / radimagenet / supcon)", "Modalité MRI, Patient ID"],
+            "Valeur"    : ["Cosine Similarity", "HNSW", "2 (baseline / supcon)", "Modalité MRI, Patient ID, Grade OMS"],
         })
         render_html_table(infra_qdrant)
 
@@ -1760,7 +1769,7 @@ elif page == "Architecture":
     ```
     Image IRM (PNG/NPY)
         ↓  Prétraitement : grayscale → normalisation → resize [128×128]
-        ↓  Encodeur CNN → Vecteur latent (256D ou 2048D)
+        ↓  Encodeur CNN → Vecteur latent (256D)
         ↓  Qdrant ANN Search (cosine, HNSW) → Top-K vecteurs
         ↓  Enrichissement MongoDB (métadonnées patient, modalité, slice)
         ↓  Filtrage SSIM (SSIM_min = {ssim_min})

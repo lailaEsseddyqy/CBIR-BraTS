@@ -6,14 +6,60 @@ Usage futur — Classification-Guided Retrieval :
   1. encode(image)  → vecteur SupCon pour Qdrant (similarité visuelle)
   2. predict_grade(image) → grade prédit pour filtrer les résultats (réduction semantic gap)
 """
+import os
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 from torchmetrics.classification import MulticlassAccuracy
-from typing import Optional
+from typing import Optional, Union
+
+from dotenv import load_dotenv
 
 from src.models.autoencoder_supervised import BraTSAutoencoderSupervised
 from src.training.grade_constants import GRADE_NAMES, IDX_TO_GRADE, NUM_GRADES
+
+
+def resolve_supcon_ckpt_path(saved_path: str = "") -> str:
+    """
+    Retrouve le checkpoint SupCon : chemin enregistré dans le .ckpt classifieur,
+    puis CHECKPOINT_PATH_SUPCON (.env), puis emplacements courants du projet.
+    """
+    load_dotenv()
+    candidates = []
+    if saved_path:
+        candidates.append(saved_path)
+        basename = os.path.basename(saved_path)
+        candidates.append(os.path.join("saved_models", basename))
+    env_path = os.getenv("CHECKPOINT_PATH_SUPCON", "")
+    if env_path:
+        candidates.append(env_path)
+    candidates.extend([
+        "./saved_models/model_final_v2.ckpt",
+        "./saved_models/brats_supcon_best.ckpt",
+    ])
+    seen = set()
+    for raw in candidates:
+        if not raw:
+            continue
+        path = os.path.normpath(os.path.abspath(raw))
+        if path in seen:
+            continue
+        seen.add(path)
+        if os.path.isfile(path):
+            return path
+
+    tried = [p for p in candidates if p]
+    raise FileNotFoundError(
+        "Checkpoint SupCon introuvable pour le classifieur CGR.\n"
+        f"  Chemins testés : {tried}\n"
+        "  Définissez CHECKPOINT_PATH_SUPCON dans .env"
+    )
+
+
+def _inference_state_dict(full: dict) -> dict:
+    """Exclut les clés entraînement-only (loss pondérée, métriques Lightning)."""
+    skip_prefixes = ("criterion.", "train_acc.", "val_acc.")
+    return {k: v for k, v in full.items() if not k.startswith(skip_prefixes)}
 
 
 class BraTSClassifierGuided(pl.LightningModule):
@@ -34,6 +80,7 @@ class BraTSClassifierGuided(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["class_weights"])
 
+        supcon_ckpt_path = resolve_supcon_ckpt_path(supcon_ckpt_path)
         self.supcon = BraTSAutoencoderSupervised.load_from_checkpoint(supcon_ckpt_path)
         self.supcon.eval()
         for param in self.supcon.parameters():
@@ -82,6 +129,31 @@ class BraTSClassifierGuided(pl.LightningModule):
     @staticmethod
     def grade_name(class_idx: int) -> str:
         return IDX_TO_GRADE.get(int(class_idx), "Inconnu")
+
+    @classmethod
+    def load_from_checkpoint(
+        cls,
+        checkpoint_path: Union[str, os.PathLike],
+        map_location=None,
+        **kwargs,
+    ):
+        """
+        Charge le classifieur sans recharger SupCon depuis un chemin obsolete
+        enregistré dans hyper_parameters (souvent relatif à la machine d'entrainement).
+        """
+        ckpt = torch.load(checkpoint_path, map_location=map_location or "cpu", weights_only=False)
+        hp = dict(ckpt.get("hyper_parameters") or {})
+        supcon_path = resolve_supcon_ckpt_path(hp.get("supcon_ckpt_path", ""))
+
+        model = cls(
+            supcon_ckpt_path=supcon_path,
+            num_classes=hp.get("num_classes", NUM_GRADES),
+            lr=hp.get("lr", 1e-3),
+        )
+        state_dict = _inference_state_dict(ckpt["state_dict"])
+        model.load_state_dict(state_dict, strict=False)
+        model.eval()
+        return model
 
     # ── Lightning steps ───────────────────────────────────────────────────
 

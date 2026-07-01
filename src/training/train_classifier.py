@@ -33,8 +33,10 @@ from src.training.grade_dataset import BraTSGradeDataset
 DATA_DIR          = os.getenv("DATA_DIR", "./Data/brats_subset_5k")
 CACHE_JSON        = os.getenv("CACHE_JSON", "./Data/brats_subset_5k_cache.json")
 GRADES_LABELS_JSON = os.getenv("GRADES_LABELS_JSON", "./Data/brats_grade_labels.json")
-SUPCON_CKPT       = os.getenv("CHECKPOINT_PATH_SUPCON", "./saved_models/brats_supcon_best.ckpt")
-OUTPUT_CKPT       = os.getenv("CLASSIFIER_CKPT", "./saved_models/brats_guided_classifier.ckpt")
+SUPCON_CKPT       = os.path.abspath(
+    os.getenv("CHECKPOINT_PATH_SUPCON", "./saved_models/model_final_v2.ckpt")
+)
+OUTPUT_CKPT       = os.getenv("CLASSIFIER_CKPT", "./saved_models/brats_guided_classifier-v1.ckpt")
 
 BATCH_SIZE  = int(os.getenv("CLASSIFIER_BATCH_SIZE", 32))
 MAX_EPOCHS  = int(os.getenv("CLASSIFIER_EPOCHS", 20))

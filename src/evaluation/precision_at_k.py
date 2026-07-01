@@ -39,7 +39,7 @@ CACHE_JSON      = os.getenv("CACHE_JSON", "./Data/brats_subset_5k_cache.json")
 OUTPUT_DIR      = "./evaluation_results"
 N_PER_GRADE     = 15     # requêtes PAR grade (stratification forcée)
 K_VALUES        = [1, 3, 5, 10]
-MODELS          = ["baseline", "radimagenet", "supcon"]
+MODELS          = ["baseline", "supcon", "guided"]
 GRADE_FIELD     = "patient.grade"
 GRADES_ORDER    = ["Grade IV", "Grade III", "Grade II"]
 
@@ -49,9 +49,9 @@ GRADE_COLORS = {
     "Grade II"  : "#3b82f6",
 }
 MODEL_COLORS = {
-    "baseline"    : "#60a5fa",
-    "radimagenet" : "#fb923c",
-    "supcon"      : "#a855f7",  
+    "baseline": "#60a5fa",
+    "supcon"  : "#a855f7",
+    "guided"  : "#10b981",
 }
 
 

@@ -1,19 +1,11 @@
 # src/recherche/multimodal_search.py
 """
-Recherche multimodale CBMIR — VERSION MULTI-MODELES
+Recherche multimodale CBMIR — 3 modes :
+  - "baseline" : Auto-encodeur BraTS 2021 (collection brats_embeddings)
+  - "supcon"   : Auto-encodeur Supervised Contrastive (brats_supcon_embeddings)
+  - "guided"   : Classification-Guided Retrieval (SupCon + filtre grade prédit)
 
-Supporte 4 modes :
-  - "baseline"    : Auto-encodeur BraTS 2021 (collection brats_embeddings)
-  - "radimagenet" : ResNet-50 RadImageNet     (collection radimagenet_embeddings)
-  - "supcon"      : Auto-encodeur Supervised Contrastive (brats_supcon_embeddings)
-  - "combined"    : Moyenne des scores Baseline + RadImageNet
-
-Combine la similarité visuelle (Qdrant) avec les filtres cliniques (MongoDB Atlas).
-
-Bugs corriges (version precedente) :
-  1. Sans filtres : requete directe Qdrant (pas de HasIdCondition sur 5000 IDs)
-  2. Logique patients distincts ajoutee
-  3. fetch_limit = k * 10 pour avoir assez apres deduplication
+Combine la similarité visuelle (Qdrant) avec les filtres cliniques (MongoDB).
 """
 
 import os, sys, uuid
@@ -32,7 +24,8 @@ from src.db.connections import (
 )
 from src.models.autoencoder import BraTSAutoencoderLightning
 from src.models.autoencoder_supervised import BraTSAutoencoderSupervised
-from src.models.radimagenet_extractor import RadImageNetExtractor
+from src.models.brats_classifier import BraTSClassifierGuided
+from src.training.grade_constants import IDX_TO_GRADE
 from qdrant_client.models import (
     Filter, FieldCondition, MatchValue,
     Range, HasIdCondition
@@ -42,16 +35,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 CKPT_PATH        = os.getenv("CHECKPOINT_PATH", "./saved_models/my_brats_model.ckpt")
-RADIMAGENET_WEIGHTS_DIR     = os.getenv("RADIMAGENET_WEIGHTS_DIR", "./pretrain")
-RADIMAGENET_PROJECTION_PATH = os.getenv("RADIMAGENET_PROJECTION", "./pretrain/radimagenet_projection.pth")
-RADIMAGENET_COLL = "radimagenet_embeddings"
 CKPT_PATH_SUPCON = os.getenv("CHECKPOINT_PATH_SUPCON", "./saved_models/brats_supcon_best.ckpt")
+CLASSIFIER_CKPT  = os.getenv("CLASSIFIER_CKPT", "./saved_models/brats_guided_classifier-v1.ckpt")
 SUPCON_COLL      = "brats_supcon_embeddings"
 
-
-# ─────────────────────────────────────────────────────────
-# Structures
-# ─────────────────────────────────────────────────────────
 
 @dataclass
 class PatientFilter:
@@ -61,6 +48,7 @@ class PatientFilter:
     modalite   : Optional[str] = None
     hopital    : Optional[str] = None
     diagnostic : Optional[str] = None
+    grade      : Optional[str] = None
     annee_min  : Optional[int] = None
     annee_max  : Optional[int] = None
 
@@ -69,36 +57,32 @@ class PatientFilter:
 class MultimodalQuery:
     image_tensor       : torch.Tensor
     k                  : int           = 10
-    model              : str           = "baseline"   # "baseline" | "radimagenet" | "supcon" | "combined"
+    model              : str           = "baseline"   # "baseline" | "supcon" | "guided"
     patient_filter     : PatientFilter = field(default_factory=PatientFilter)
     score_threshold    : float         = 0.0
-    exclude_patient_id : Optional[str] = None   # patient de la requete a exclure
+    exclude_patient_id : Optional[str] = None
 
 
 @dataclass
 class MultimodalResult:
-    rank            : int
-    score           : float
-    score_baseline  : float = 0.0
-    score_radimagenet: float = 0.0
-    model_used      : str   = ""
-    slice_id        : str   = ""
-    patient_id      : str   = ""
-    modalite        : str   = ""
-    slice_z         : int   = -1
-    file_path       : str   = ""
-    sexe            : str   = ""
-    age             : int   = 0
-    hopital         : str   = ""
-    diagnostic      : str   = ""
-    machine_irm     : str   = ""
-    annee_exam      : int   = 0
-    antecedents     : str   = ""
+    rank         : int
+    score        : float
+    score_baseline: float = 0.0
+    model_used   : str   = ""
+    slice_id     : str   = ""
+    patient_id   : str   = ""
+    modalite     : str   = ""
+    slice_z      : int   = -1
+    file_path    : str   = ""
+    sexe         : str   = ""
+    age          : int   = 0
+    hopital      : str   = ""
+    diagnostic   : str   = ""
+    machine_irm  : str   = ""
+    annee_exam   : int   = 0
+    antecedents  : str   = ""
+    grade        : str   = ""
 
-
-# ─────────────────────────────────────────────────────────
-# Moteur multimodal
-# ─────────────────────────────────────────────────────────
 
 class MultimodalSearchEngine:
 
@@ -107,41 +91,43 @@ class MultimodalSearchEngine:
             "cuda" if torch.cuda.is_available() else "cpu"
         )
 
-        # Baseline — toujours chargé
         self.model = BraTSAutoencoderLightning.load_from_checkpoint(checkpoint_path)
         self.model.eval().to(self.device)
 
         self.qdrant = get_qdrant_client()
         self.mongo  = get_slices_collection()
 
-        # RadImageNet / SupCon — chargement lazy (lourd en RAM)
-        self._radimagenet = None
         self._supcon = None
+        self._classifier = None
+        self._last_guided_info: dict = {}
 
-        print(f"[Multimodal] Moteur charge — device: {self.device}")
-
-    @property
-    def radimagenet(self) -> RadImageNetExtractor:
-        """Charge RadImageNet à la première utilisation."""
-        if self._radimagenet is None:
-            self._radimagenet = RadImageNetExtractor(
-                weights_dir=RADIMAGENET_WEIGHTS_DIR,
-                freeze=True,
-                projection_path=RADIMAGENET_PROJECTION_PATH,
-            )
-            self._radimagenet.eval().to(self.device)
-            print(f"[Multimodal] RadImageNet charge — device: {self.device}")
-        return self._radimagenet
+        print(f"[Multimodal] Moteur chargé — device: {self.device}")
 
     @property
     def supcon(self) -> BraTSAutoencoderSupervised:
         if self._supcon is None:
             self._supcon = BraTSAutoencoderSupervised.load_from_checkpoint(CKPT_PATH_SUPCON)
             self._supcon.eval().to(self.device)
-            print(f"[Multimodal] SupCon charge — device: {self.device}")
+            print(f"[Multimodal] SupCon chargé — device: {self.device}")
         return self._supcon
 
-    # ── Encodage ──────────────────────────────────────────
+    @property
+    def classifier(self) -> BraTSClassifierGuided:
+        if self._classifier is None:
+            if not os.path.exists(CLASSIFIER_CKPT):
+                raise FileNotFoundError(
+                    f"Checkpoint classifieur introuvable : {CLASSIFIER_CKPT}\n"
+                    "Définissez CLASSIFIER_CKPT dans .env"
+                )
+            self._classifier = BraTSClassifierGuided.load_from_checkpoint(CLASSIFIER_CKPT)
+            self._classifier.eval().to(self.device)
+            print(f"[Multimodal] Classifieur CGR chargé — device: {self.device}")
+        return self._classifier
+
+    @property
+    def last_guided_info(self) -> dict:
+        return self._last_guided_info
+
     @torch.no_grad()
     def encode_baseline(self, image_tensor: torch.Tensor) -> list:
         img  = image_tensor.unsqueeze(0).to(self.device)
@@ -153,19 +139,28 @@ class MultimodalSearchEngine:
             emb = emb / norm
         return emb[0].tolist()
 
-    def encode_radimagenet(self, image_tensor: torch.Tensor) -> list:
-        tensor_device = image_tensor.to(self.device)
-        return self.radimagenet.extract(tensor_device)
-
     @torch.no_grad()
     def encode_supcon(self, image_tensor: torch.Tensor) -> list:
         img = image_tensor.unsqueeze(0).to(self.device)
         _, emb_n = self.supcon(img)
         return emb_n.cpu().numpy().astype("float32")[0].tolist()
 
-    # ── Filtrage MongoDB ───────────────────────────────────
+    @torch.no_grad()
+    def predict_grade(self, image_tensor: torch.Tensor) -> dict:
+        img = image_tensor.unsqueeze(0).to(self.device)
+        embedding, pred_idx, probs = self.classifier.predict_grade(img)
+        idx = int(pred_idx.item())
+        return {
+            "predicted_grade": IDX_TO_GRADE.get(idx, "Inconnu"),
+            "confidence"     : round(float(probs[0, idx].item()), 4),
+            "probs"          : {
+                IDX_TO_GRADE[i]: round(float(probs[0, i].item()), 4)
+                for i in range(probs.shape[1])
+            },
+            "vector"         : embedding.cpu().numpy().astype("float32")[0].tolist(),
+        }
+
     def _filter_by_patient(self, pf: PatientFilter) -> list:
-        """Retourne les slice_id eligibles selon les filtres cliniques."""
         mongo_query = {}
 
         if pf.sexe:
@@ -188,6 +183,9 @@ class MultimodalSearchEngine:
                 "$regex": pf.diagnostic, "$options": "i"
             }
 
+        if pf.grade:
+            mongo_query["patient.grade"] = pf.grade
+
         if pf.annee_min is not None or pf.annee_max is not None:
             annee_q = {}
             if pf.annee_min is not None: annee_q["$gte"] = pf.annee_min
@@ -197,7 +195,6 @@ class MultimodalSearchEngine:
         docs = self.mongo.find(mongo_query, {"slice_id": 1})
         return [doc["slice_id"] for doc in docs]
 
-    # ── Recherche Qdrant avec filtre HasId ─────────────────
     def _search_qdrant_with_ids(
         self,
         collection      : str,
@@ -207,11 +204,6 @@ class MultimodalSearchEngine:
         score_threshold : float,
         namespace       : str = "",
     ) -> list:
-        """
-        Recherche vectorielle parmi un sous-ensemble de IDs.
-        namespace : préfixe utilisé lors de la génération des UUID
-                    (vide pour baseline, "radimagenet_" pour RadImageNet)
-        """
         MAX_IDS = 1000
         if len(eligible_ids) > MAX_IDS:
             eligible_ids = eligible_ids[:MAX_IDS]
@@ -234,7 +226,6 @@ class MultimodalSearchEngine:
             with_payload=True,
         ).points
 
-    # ── Recherche Qdrant directe (sans filtre ID) ──────────
     def _search_qdrant_direct(
         self,
         collection      : str,
@@ -243,9 +234,6 @@ class MultimodalSearchEngine:
         score_threshold : float,
         modalite_filter : Optional[str] = None,
     ) -> list:
-        """
-        Recherche directe dans Qdrant (pas de HasIdCondition sur tous les IDs).
-        """
         qdrant_filter = None
         if modalite_filter:
             qdrant_filter = Filter(
@@ -264,7 +252,6 @@ class MultimodalSearchEngine:
             with_payload=True,
         ).points
 
-    # ── Recherche brute pour une collection donnée ─────────
     def _search_one_model(
         self,
         collection      : str,
@@ -275,13 +262,9 @@ class MultimodalSearchEngine:
         exclude_patient_id : Optional[str],
         namespace       : str = "",
     ) -> dict:
-        """
-        Retourne un dict {patient_id: hit} avec la meilleure coupe
-        par patient pour la collection donnée.
-        """
         has_clinical_filters = any([
             pf.sexe, pf.age_min, pf.age_max,
-            pf.hopital, pf.diagnostic,
+            pf.hopital, pf.diagnostic, pf.grade,
             pf.annee_min, pf.annee_max,
         ])
 
@@ -312,12 +295,7 @@ class MultimodalSearchEngine:
                 best_per_patient[pid] = hit
         return best_per_patient
 
-    # ── Enrichissement MongoDB + assemblage résultats ──────
     def _build_results(self, entries: list) -> list:
-        """
-        entries : liste de dicts avec au minimum
-                  {"hit", "score", "score_baseline", "score_radimagenet", "model_used"}
-        """
         slice_ids  = [e["hit"].payload["slice_id"] for e in entries]
         mongo_docs = {
             doc["slice_id"]: doc
@@ -332,36 +310,63 @@ class MultimodalSearchEngine:
             pat  = mdoc.get("patient", {})
 
             results.append(MultimodalResult(
-                rank             = rank + 1,
-                score            = round(float(entry["score"]), 4),
-                score_baseline   = round(float(entry.get("score_baseline", 0.0)), 4),
-                score_radimagenet= round(float(entry.get("score_radimagenet", 0.0)), 4),
-                model_used       = entry.get("model_used", ""),
-                slice_id         = sid,
-                patient_id       = hit.payload.get("patient_id", ""),
-                modalite         = hit.payload.get("modalite", ""),
-                slice_z          = hit.payload.get("slice_z", -1),
-                file_path        = mdoc.get("file_path", ""),
-                sexe             = pat.get("sexe", ""),
-                age              = pat.get("age", 0),
-                hopital          = pat.get("hopital", ""),
-                diagnostic       = pat.get("diagnostic", ""),
-                machine_irm      = pat.get("machine_irm", ""),
-                annee_exam       = pat.get("annee_exam", 0),
-                antecedents      = pat.get("antecedents", ""),
+                rank          = rank + 1,
+                score         = round(float(entry["score"]), 4),
+                score_baseline= round(float(entry.get("score_baseline", 0.0)), 4),
+                model_used    = entry.get("model_used", ""),
+                slice_id      = sid,
+                patient_id    = hit.payload.get("patient_id", ""),
+                modalite      = hit.payload.get("modalite", ""),
+                slice_z       = hit.payload.get("slice_z", -1),
+                file_path     = mdoc.get("file_path", ""),
+                sexe          = pat.get("sexe", ""),
+                age           = pat.get("age", 0),
+                hopital       = pat.get("hopital", ""),
+                diagnostic    = pat.get("diagnostic", ""),
+                machine_irm   = pat.get("machine_irm", ""),
+                annee_exam    = pat.get("annee_exam", 0),
+                antecedents   = pat.get("antecedents", ""),
+                grade         = pat.get("grade", ""),
             ))
         return results
 
-    # ── Recherche principale ───────────────────────────────
+    def _search_guided(self, query: MultimodalQuery, fetch_limit: int) -> list:
+        grade_info = self.predict_grade(query.image_tensor)
+        self._last_guided_info = {
+            "predicted_grade": grade_info["predicted_grade"],
+            "confidence"     : grade_info["confidence"],
+            "probs"          : grade_info["probs"],
+        }
+
+        pf = PatientFilter(
+            sexe       = query.patient_filter.sexe,
+            age_min    = query.patient_filter.age_min,
+            age_max    = query.patient_filter.age_max,
+            modalite   = query.patient_filter.modalite,
+            hopital    = query.patient_filter.hopital,
+            diagnostic = query.patient_filter.diagnostic,
+            grade      = grade_info["predicted_grade"],
+            annee_min  = query.patient_filter.annee_min,
+            annee_max  = query.patient_filter.annee_max,
+        )
+
+        best = self._search_one_model(
+            SUPCON_COLL, grade_info["vector"], fetch_limit, query.score_threshold,
+            pf, query.exclude_patient_id, namespace="supcon_",
+        )
+        top = sorted(best.values(), key=lambda h: h.score, reverse=True)[:query.k]
+        entries = [
+            {"hit": h, "score": h.score, "score_baseline": 0.0, "model_used": "guided"}
+            for h in top
+        ]
+        return self._build_results(entries)
+
     def search(self, query: MultimodalQuery) -> list:
-        """
-        Recherche multimodale avec patients distincts.
-        model : "baseline" | "radimagenet" | "supcon" | "combined"
-        """
         pf = query.patient_filter
         fetch_limit = max(query.k * 10, 50)
 
         if query.model == "baseline":
+            self._last_guided_info = {}
             vec  = self.encode_baseline(query.image_tensor)
             best = self._search_one_model(
                 QDRANT_COLLECTION, vec, fetch_limit, query.score_threshold,
@@ -369,27 +374,13 @@ class MultimodalSearchEngine:
             )
             top = sorted(best.values(), key=lambda h: h.score, reverse=True)[:query.k]
             entries = [
-                {"hit": h, "score": h.score, "score_baseline": h.score,
-                 "score_radimagenet": 0.0, "model_used": "baseline"}
-                for h in top
-            ]
-            return self._build_results(entries)
-
-        elif query.model == "radimagenet":
-            vec  = self.encode_radimagenet(query.image_tensor)
-            best = self._search_one_model(
-                RADIMAGENET_COLL, vec, fetch_limit, query.score_threshold,
-                pf, query.exclude_patient_id, namespace="radimagenet_",
-            )
-            top = sorted(best.values(), key=lambda h: h.score, reverse=True)[:query.k]
-            entries = [
-                {"hit": h, "score": h.score, "score_baseline": 0.0,
-                 "score_radimagenet": h.score, "model_used": "radimagenet"}
+                {"hit": h, "score": h.score, "score_baseline": h.score, "model_used": "baseline"}
                 for h in top
             ]
             return self._build_results(entries)
 
         elif query.model == "supcon":
+            self._last_guided_info = {}
             vec  = self.encode_supcon(query.image_tensor)
             best = self._search_one_model(
                 SUPCON_COLL, vec, fetch_limit, query.score_threshold,
@@ -397,61 +388,17 @@ class MultimodalSearchEngine:
             )
             top = sorted(best.values(), key=lambda h: h.score, reverse=True)[:query.k]
             entries = [
-                {"hit": h, "score": h.score, "score_baseline": 0.0,
-                 "score_radimagenet": 0.0, "model_used": "supcon"}
+                {"hit": h, "score": h.score, "score_baseline": 0.0, "model_used": "supcon"}
                 for h in top
             ]
             return self._build_results(entries)
 
-        elif query.model == "combined":
-            vec_b = self.encode_baseline(query.image_tensor)
-            vec_r = self.encode_radimagenet(query.image_tensor)
-
-            best_b = self._search_one_model(
-                QDRANT_COLLECTION, vec_b, query.k * 2, query.score_threshold,
-                pf, query.exclude_patient_id, namespace="",
-            )
-            best_r = self._search_one_model(
-                RADIMAGENET_COLL, vec_r, query.k * 2, query.score_threshold,
-                pf, query.exclude_patient_id, namespace="radimagenet_",
-            )
-
-            all_pids = set(best_b.keys()) | set(best_r.keys())
-            combined = {}
-            for pid in all_pids:
-                hit_b = best_b.get(pid)
-                hit_r = best_r.get(pid)
-
-                if hit_b and hit_r:
-                    avg_score = (hit_b.score + hit_r.score) / 2.0
-                    combined[pid] = {
-                        "hit": hit_b, "score": avg_score,
-                        "score_baseline": hit_b.score,
-                        "score_radimagenet": hit_r.score,
-                        "model_used": "combined",
-                    }
-                elif hit_b:
-                    combined[pid] = {
-                        "hit": hit_b, "score": hit_b.score * 0.85,
-                        "score_baseline": hit_b.score,
-                        "score_radimagenet": 0.0,
-                        "model_used": "combined",
-                    }
-                else:
-                    combined[pid] = {
-                        "hit": hit_r, "score": hit_r.score * 0.85,
-                        "score_baseline": 0.0,
-                        "score_radimagenet": hit_r.score,
-                        "model_used": "combined",
-                    }
-
-            top = sorted(combined.values(), key=lambda x: x["score"], reverse=True)[:query.k]
-            return self._build_results(top)
+        elif query.model == "guided":
+            return self._search_guided(query, fetch_limit)
 
         else:
-            raise ValueError(f"Modèle inconnu : {query.model}")
+            raise ValueError(f"Modèle inconnu : {query.model} — valeurs acceptées : baseline, supcon, guided")
 
-    # ── Statistiques ──────────────────────────────────────
     def stats_by_filter(self, pf: PatientFilter) -> dict:
         eligible = self._filter_by_patient(pf)
         total    = self.mongo.count_documents({})
@@ -460,32 +407,3 @@ class MultimodalSearchEngine:
             "total_collection": total,
             "pourcentage"     : round(len(eligible) / max(total, 1) * 100, 1),
         }
-
-
-# ─────────────────────────────────────────────────────────
-# Test rapide
-# ─────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    engine = MultimodalSearchEngine()
-    dummy  = torch.rand(1, 128, 128)
-
-    print("\n── Test : Hommes + 50 ans + FLAIR (baseline) ──")
-    query = MultimodalQuery(
-        image_tensor   = dummy,
-        k              = 5,
-        model          = "baseline",
-        patient_filter = PatientFilter(sexe="Homme", age_min=50, modalite="flair"),
-    )
-    results = engine.search(query)
-    patients = [r.patient_id for r in results]
-    print(f"Patients distincts : {len(set(patients))}/{len(results)}")
-    for r in results:
-        print(f"  Rang {r.rank} | {r.score} | {r.patient_id} | {r.sexe} {r.age}ans")
-
-    print("\n── Test : Sans filtres, combined ──")
-    query2   = MultimodalQuery(image_tensor=dummy, k=5, model="combined")
-    results2 = engine.search(query2)
-    patients2 = [r.patient_id for r in results2]
-    print(f"Patients distincts : {len(set(patients2))}/{len(results2)}")
-    for r in results2:
-        print(f"  Rang {r.rank} | score={r.score} (b={r.score_baseline}, r={r.score_radimagenet}) | {r.patient_id}")
